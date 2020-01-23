@@ -10,68 +10,63 @@ package ibusnats
 import (
 	"context"
 	"github.com/nats-io/go-nats"
+	ibus "github.com/untillpro/airs-ibus"
 	"github.com/untillpro/gochips"
-	"math/rand"
-	"sync"
-	"time"
 )
 
-type ChunkedRequestBody []byte
-
+// Service s.e.
 type Service struct {
-	Servers            string
-	Parts, CurrentPart int
-	natsPublisher      *natsPublisher
-	natsSubscribers    []*natsSubscriber
+	// Comma separated list of servers
+	NATSServers      string
+	Queues           map[string]int
+	CurrentQueueName string
+	Parts            int
+	CurrentPart      int
+	nATSPublisher    *nATSPublisher
+	nATSSubscribers  []*nATSSubscriber
 }
 
 type contextKeyType string
 
 const (
-	natsKey         = contextKeyType("natsKey")
-	QueuesPrefix    = "queues"
-	DefaultNatsHost = "0.0.0.0"
+	nATSKey = contextKeyType("nATSKey")
+	// DefaultNATSHost s.e.
+	DefaultNATSHost = "0.0.0.0"
 )
 
 func getService(ctx context.Context) *Service {
-	return ctx.Value(natsKey).(*Service)
+	return ctx.Value(nATSKey).(*Service)
 }
 
 // Start s.e.
 func (s *Service) Start(ctx context.Context) (context.Context, error) {
-	rand.Seed(time.Now().UnixNano())
 	var err error
-	s.natsSubscribers, err = connectSubscribers(s)
+	s.nATSSubscribers, err = connectSubscribers(s)
 	if err != nil {
-		disconnectSubscribers(s.natsSubscribers)
+		disconnectSubscribers(s.nATSSubscribers)
 		return ctx, err
 	}
-	s.natsPublisher, err = connectPublisher(s.Servers)
+	s.nATSPublisher, err = connectPublisher(s.NATSServers)
 	if err != nil {
-		disconnectSubscribers(s.natsSubscribers)
+		disconnectSubscribers(s.nATSSubscribers)
 		return ctx, err
 	}
-	for _, v := range s.natsSubscribers {
+	actx := context.WithValue(ctx, nATSKey, s)
+	for _, v := range s.nATSSubscribers {
 		var natsHandler nats.MsgHandler
-		if v.partitionsNumber == 0 {
-			// TODO think about it
-			natsHandler = v.invokeNatsNonPartyHandler(ctx, handler)
-		} else {
-			factory := partitionHandlerFactories[v.queueID]
-			natsHandler = v.createNatsPartitionedHandler(ctx, factory)
-		}
+		natsHandler = v.invokeNATSHandler(actx, ibus.RequestHandler)
 		err := v.subscribe(natsHandler)
 		if err != nil {
 			v.worker.conn.Close()
 			gochips.Info(err)
 		}
 	}
-	return context.WithValue(ctx, natsKey, s), nil
+	return actx, nil
 }
 
 // Stop s.e.
 func (s *Service) Stop(ctx context.Context) {
-	unsubscribe(s.natsSubscribers)
-	disconnectSubscribers(s.natsSubscribers)
-	s.natsPublisher.conn.Close()
+	unsubscribe(s.nATSSubscribers)
+	disconnectSubscribers(s.nATSSubscribers)
+	s.nATSPublisher.conn.Close()
 }

@@ -16,7 +16,6 @@ import (
 // Declare s.e.
 func Declare(service Service) {
 	godif.ProvideSliceElement(&services.Services, &service)
-	godif.Provide(&ibus.SendRequest, sendRequest)
-	godif.Provide(&ibus.RequestHandler, requestHandler)
-	godif.Provide(&ibus.PostResponse, postResponse)
+	godif.Provide(&ibus.SendRequest, implSendRequest)
+	godif.Provide(&ibus.SendResponse, implSendResponse)
 }
