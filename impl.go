@@ -17,7 +17,6 @@ import (
 	"github.com/nats-io/go-nats"
 	ibus "github.com/untillpro/airs-ibus"
 	"github.com/untillpro/gochips"
-	"net/http"
 	"strconv"
 	"time"
 )
@@ -145,21 +144,18 @@ func getChunksFromNATS(ctx context.Context, chunks chan []byte, sub *nats.Subscr
 
 		if msg.Data[0] == firstByteInErrorMsg || msg.Data[0] == firstByteInLastMsg {
 			EOM = true
-			msg.Data = msg.Data[1:]
 			if msg.Data[0] == firstByteInErrorMsg {
-				err := errors.New(string(msg.Data))
+				err := errors.New(string(msg.Data[1:]))
 				*perr = err
 				break
 			}
 		}
+		msg.Data = msg.Data[1:]
 		select {
 		case <-ctx.Done():
 			*perr = ctx.Err()
 		default:
 			chunks <- msg.Data
-		}
-		if *perr != nil {
-			break
 		}
 	}
 }
@@ -177,18 +173,10 @@ func (np *nATSPublisher) nATSReply(resp *ibus.Response, subjToReply string) {
 func (np *nATSPublisher) chunkedNATSReply(resp *ibus.Response, chunks <-chan []byte, perr *error, subjToReply string) {
 	nc := np.conn
 
-	if perr != nil && *perr != nil {
-		np.publishError(*perr, subjToReply)
-		return
-	}
-
 	data := serializeResponse(resp)
 	data = prependByte(data, firstByteInRegularMsg)
 
-	var err error
-	perr = &err
-
-	err = nc.Publish(subjToReply, data)
+	err := nc.Publish(subjToReply, data)
 	if err != nil {
 		gochips.Error(err)
 		*perr = err
@@ -205,23 +193,21 @@ func (np *nATSPublisher) chunkedNATSReply(resp *ibus.Response, chunks <-chan []b
 		}
 	}
 
+	if *perr != nil {
+		np.publishError(*perr, subjToReply)
+	}
+
 	err = nc.Publish(subjToReply, []byte{firstByteInLastMsg})
 	if err != nil {
 		gochips.Error(err)
-		*perr = err
 		return
-	}
-
-	if *perr != nil {
-		np.publishError(*perr, subjToReply)
 	}
 }
 
 func (np *nATSPublisher) publishError(err error, subjToReply string) {
 	nc := np.conn
 	gochips.Error(err)
-	resp := ibus.CreateResponse(http.StatusInternalServerError, err.Error())
-	data := serializeResponse(resp)
+	data := []byte(err.Error())
 	data = prependByte(data, firstByteInErrorMsg)
 	err = nc.Publish(subjToReply, data)
 	if err != nil {
