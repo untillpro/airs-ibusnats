@@ -33,22 +33,21 @@ type nATSPublisher struct {
 }
 
 type nATSSubscriber struct {
-	queueID          string
-	numOfPartition   int
-	partitionsNumber int
-	worker           *nATSPublisher
-	subscription     *nats.Subscription
+	queueID                string
+	currentPartitionNumber int
+	worker                 *nATSPublisher
+	subscription           *nats.Subscription
 }
 
 func connectPublisher(servers string) (worker *nATSPublisher, err error) {
 	return connectToNATS(servers, "NATSPublisher")
 }
 
-func connectSubscribers(s *Service) (subscribers []*nATSSubscriber, err error) {
+func connectSubscribers(s *Service) (subscribers map[int]*nATSSubscriber, err error) {
 	if s.CurrentQueueName == "" {
 		return
 	}
-	subscribers = make([]*nATSSubscriber, 0)
+	subscribers = make(map[int]*nATSSubscriber, 0)
 	var numOfSubjects int
 	var ok bool
 	if numOfSubjects, ok = s.Queues[s.CurrentQueueName]; !ok {
@@ -81,12 +80,12 @@ func connectSubscribers(s *Service) (subscribers []*nATSSubscriber, err error) {
 		if err != nil {
 			return subscribers, err
 		}
-		subscribers = append(subscribers, &nATSSubscriber{s.CurrentQueueName, i, numOfSubjects, worker, nil})
+		subscribers[i] = &nATSSubscriber{s.CurrentQueueName, i, worker, nil}
 	}
 	return subscribers, nil
 }
 
-func unsubscribe(subscribers []*nATSSubscriber) {
+func unsubscribe(subscribers map[int]*nATSSubscriber) {
 	for _, s := range subscribers {
 		err := s.subscription.Unsubscribe()
 		if err != nil {
@@ -95,7 +94,7 @@ func unsubscribe(subscribers []*nATSSubscriber) {
 	}
 }
 
-func disconnectSubscribers(subscribers []*nATSSubscriber) {
+func disconnectSubscribers(subscribers map[int]*nATSSubscriber) {
 	for _, s := range subscribers {
 		s.worker.conn.Close()
 	}
@@ -110,19 +109,6 @@ func connectToNATS(servers string, subjName string) (worker *nATSPublisher, err 
 	}
 	worker = &nATSPublisher{servers, natsConn}
 	return worker, nil
-}
-
-func (ns *nATSSubscriber) invokeNATSHandler(ctx context.Context,
-	handler func(ctx context.Context, sender interface{}, request ibus.Request)) nats.MsgHandler {
-	return func(msg *nats.Msg) {
-		var req ibus.Request
-		err := json.Unmarshal(msg.Data, &req)
-		if err != nil {
-			gochips.Error(err)
-			return
-		}
-		handler(ctx, msg.Reply, req)
-	}
 }
 
 func getChunksFromNATS(ctx context.Context, chunks chan []byte, sub *nats.Subscription, perr *error, max time.Time,
@@ -160,8 +146,8 @@ func getChunksFromNATS(ctx context.Context, chunks chan []byte, sub *nats.Subscr
 	}
 }
 
-func (np *nATSPublisher) nATSReply(resp *ibus.Response, subjToReply string) {
-	nc := np.conn
+func (ns *nATSSubscriber) nATSReply(resp *ibus.Response, subjToReply string) {
+	nc := ns.worker.conn
 	data := serializeResponse(resp)
 	data = prependByte(data, firstByteInLastMsg)
 	err := nc.Publish(subjToReply, data)
@@ -170,8 +156,8 @@ func (np *nATSPublisher) nATSReply(resp *ibus.Response, subjToReply string) {
 	}
 }
 
-func (np *nATSPublisher) chunkedNATSReply(resp *ibus.Response, chunks <-chan []byte, perr *error, subjToReply string) {
-	nc := np.conn
+func (ns *nATSSubscriber) chunkedNATSReply(resp *ibus.Response, chunks <-chan []byte, perr *error, subjToReply string) {
+	nc := ns.worker.conn
 
 	data := serializeResponse(resp)
 	data = prependByte(data, firstByteInRegularMsg)
@@ -194,7 +180,7 @@ func (np *nATSPublisher) chunkedNATSReply(resp *ibus.Response, chunks <-chan []b
 	}
 
 	if *perr != nil {
-		np.publishError(*perr, subjToReply)
+		ns.publishError(*perr, subjToReply)
 	}
 
 	err = nc.Publish(subjToReply, []byte{firstByteInLastMsg})
@@ -204,8 +190,8 @@ func (np *nATSPublisher) chunkedNATSReply(resp *ibus.Response, chunks <-chan []b
 	}
 }
 
-func (np *nATSPublisher) publishError(err error, subjToReply string) {
-	nc := np.conn
+func (ns *nATSSubscriber) publishError(err error, subjToReply string) {
+	nc := ns.worker.conn
 	gochips.Error(err)
 	data := []byte(err.Error())
 	data = prependByte(data, firstByteInErrorMsg)
@@ -301,6 +287,24 @@ func setupConnOptions(opts []nats.Option) []nats.Option {
 	return opts
 }
 
+type senderImpl struct {
+	PartNumber int
+	ReplyTo    string
+}
+
+func (ns *nATSSubscriber) invokeNATSHandler(ctx context.Context,
+	handler func(ctx context.Context, sender interface{}, request ibus.Request)) nats.MsgHandler {
+	return func(msg *nats.Msg) {
+		var req ibus.Request
+		err := json.Unmarshal(msg.Data, &req)
+		if err != nil {
+			gochips.Error(err)
+			return
+		}
+		handler(ctx, senderImpl{PartNumber: req.PartitionNumber, ReplyTo: msg.Reply}, req)
+	}
+}
+
 func implSendRequest(ctx context.Context,
 	request *ibus.Request, timeout time.Duration) (res *ibus.Response, chunks <-chan []byte, chunksError *error, err error) {
 	reqData, err := json.Marshal(request)
@@ -314,17 +318,17 @@ func implSendRequest(ctx context.Context,
 }
 
 func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response, chunks <-chan []byte, chunksError *error) {
-	var replyTo string
+	var sImpl senderImpl
 	var ok bool
-	if replyTo, ok = sender.(string); !ok {
-		gochips.Error("can't cast sender iface to string with subject to reply to")
+	if sImpl, ok = sender.(senderImpl); !ok {
+		gochips.Error("can't get part number and reply to from sender iface")
 		return
 	}
 	worker := getService(ctx)
 	if chunks == nil {
-		worker.nATSPublisher.nATSReply(&response, replyTo)
+		worker.nATSSubscribers[sImpl.PartNumber].nATSReply(&response, sImpl.ReplyTo)
 	} else {
-		worker.nATSPublisher.chunkedNATSReply(&response, chunks, chunksError, replyTo)
+		worker.nATSSubscribers[sImpl.PartNumber].chunkedNATSReply(&response, chunks, chunksError, sImpl.ReplyTo)
 	}
 }
 

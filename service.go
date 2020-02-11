@@ -22,8 +22,9 @@ type Service struct {
 	CurrentQueueName string
 	Parts            int
 	CurrentPart      int
-	nATSPublisher    *nATSPublisher
-	nATSSubscribers  []*nATSSubscriber
+	// In router subs are nil, in app publisher nil
+	nATSPublisher   *nATSPublisher
+	nATSSubscribers map[int]*nATSSubscriber
 }
 
 type contextKeyType string
