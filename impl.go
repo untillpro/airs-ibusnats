@@ -14,11 +14,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nats-io/go-nats"
-	ibus "github.com/untillpro/airs-ibus"
-	"github.com/untillpro/gochips"
 	"strconv"
 	"time"
+
+	"github.com/nats-io/nats.go"
+	ibus "github.com/untillpro/airs-ibus"
+	"github.com/untillpro/gochips"
 )
 
 const (

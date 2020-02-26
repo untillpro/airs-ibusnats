@@ -9,7 +9,8 @@ package ibusnats
 
 import (
 	"context"
-	"github.com/nats-io/go-nats"
+
+	"github.com/nats-io/nats.go"
 	ibus "github.com/untillpro/airs-ibus"
 	"github.com/untillpro/gochips"
 )
