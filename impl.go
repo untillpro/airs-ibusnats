@@ -82,7 +82,6 @@ func connectSubscribers(s *Service) (subscribers map[int]*nATSSubscriber, err er
 			return subscribers, err
 		}
 		subscribers[i] = &nATSSubscriber{s.CurrentQueueName, i, worker, nil}
-		gochips.Info("ibusnats: subscriber: ", subscribers[i])
 	}
 	return subscribers, nil
 }
@@ -146,7 +145,6 @@ func getChunksFromNATS(ctx context.Context, chunks chan []byte, sub *nats.Subscr
 			chunks <- msg.Data
 		}
 	}
-	gochips.Info("!!!!!! getChunksFromNATS 4")
 }
 
 func (ns *nATSSubscriber) nATSReply(resp *ibus.Response, subjToReply string) {
@@ -231,7 +229,6 @@ func (np *nATSPublisher) chunkedRespNATS(ctx context.Context, data []byte, parti
 	resp *ibus.Response, outChunks <-chan []byte, outChunksError *error, err error) {
 	conn := np.conn
 	replyTo := nats.NewInbox()
-	gochips.Info("!!!!!! chunkedRespNATS 1")
 	sub, err := conn.SubscribeSync(replyTo)
 	if err != nil {
 		gochips.Error(err)
@@ -240,7 +237,6 @@ func (np *nATSPublisher) chunkedRespNATS(ctx context.Context, data []byte, parti
 	conn.Flush()
 
 	// Send the request
-	gochips.Info("!!!!!! chunkedRespNATS 2")
 	err = conn.PublishRequest(partitionKey, replyTo, data)
 	if err != nil {
 		gochips.Error(err)
@@ -249,7 +245,6 @@ func (np *nATSPublisher) chunkedRespNATS(ctx context.Context, data []byte, parti
 
 	chunks := make(chan []byte)
 	// Wait for a single response
-	gochips.Info("!!!!!! chunkedRespNATS 3")
 	max := time.Now().Add(timeout)
 	msg, err := sub.NextMsg(timeout)
 	if err != nil {

@@ -54,7 +54,6 @@ func (s *Service) Start(ctx context.Context) (context.Context, error) {
 		return ctx, err
 	}
 	actx := context.WithValue(ctx, nATSKey, s)
-	gochips.Info("ibusnats start:", s.nATSSubscribers)
 	for _, v := range s.nATSSubscribers {
 		var natsHandler nats.MsgHandler
 		natsHandler = v.invokeNATSHandler(actx, ibus.RequestHandler)
