@@ -8,5 +8,6 @@ require (
 	github.com/nats-io/nats.go v1.9.1
 	github.com/untillpro/airs-ibus v0.0.0-20200210150646-efe9a3524a2d
 	github.com/untillpro/gochips v1.12.1-0.20191205115612-9cd10d0ac2b3
-	github.com/untillpro/godif v0.17.0
+	github.com/untillpro/godif v0.18.0
+	golang.org/x/crypto v0.0.0-20200323165209-0ec3e9974c59 // indirect
 )
