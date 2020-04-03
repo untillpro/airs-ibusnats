@@ -171,7 +171,7 @@ func (ns *nATSSubscriber) chunkedNATSReply(resp *ibus.Response, chunks <-chan []
 	}
 
 	for chunk := range chunks {
-		// chunk = prependByte(chunk, firstByteInRegularMsg) malformed response with this
+		chunk = prependByte(chunk, firstByteInRegularMsg)
 		err = nc.Publish(subjToReply, chunk)
 		if err != nil {
 			gochips.Error(err)
