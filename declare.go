@@ -18,5 +18,5 @@ func Declare(service Service) {
 	godif.ProvideSliceElement(&services.Services, &service)
 	godif.Provide(&ibus.SendRequest, implSendRequest)
 	godif.Provide(&ibus.SendResponse, implSendResponse)
-	godif.Require(&ibus.RequestHandler)
+	// godif.Require(&ibus.RequestHandler)
 }
