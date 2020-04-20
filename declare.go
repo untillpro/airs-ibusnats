@@ -19,4 +19,5 @@ func Declare(service Service) {
 	godif.Provide(&ibus.SendRequest, implSendRequest)
 	godif.Provide(&ibus.SendResponse, implSendResponse)
 	godif.Provide(&ibus.SendParallelResponse, implSendParallelResponse)
+	godif.Require(&ibus.RequestHandler)
 }
