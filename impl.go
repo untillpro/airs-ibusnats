@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -318,7 +319,16 @@ func implSendRequest(ctx context.Context,
 	return worker.nATSPublisher.chunkedRespNATS(ctx, reqData, qName, timeout)
 }
 
-func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response, chunks <-chan []byte, chunksError *error) {
+func implSendParallelResponse(ctx context.Context, sender interface{}, chunks <-chan []byte, chunksError *error) {
+	resp := ibus.CreateResponse(http.StatusOK, "ok")
+	sendResponse(ctx, sender, resp, chunks, chunksError)
+}
+
+func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response) {
+	sendResponse(ctx, sender, response, nil, nil)
+}
+
+func sendResponse(ctx context.Context, sender interface{}, response ibus.Response, chunks <-chan []byte, chunksError *error) {
 	var sImpl senderImpl
 	var ok bool
 	if sImpl, ok = sender.(senderImpl); !ok {
