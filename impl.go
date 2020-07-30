@@ -286,6 +286,10 @@ func setupConnOptions(opts []nats.Option) []nats.Option {
 	opts = append(opts, nats.ClosedHandler(func(nc *nats.Conn) {
 		gochips.Error(nc.Opts.Name + " closed")
 	}))
+	opts = append(opts, nats.ErrorHandler(func(nc *nats.Conn, s *nats.Subscription, err error) {
+		gochips.Error(nc.Opts.Name + " error: " + err.Error())
+	}))
+
 	return opts
 }
 
