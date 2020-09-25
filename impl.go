@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -172,7 +171,6 @@ func (ns *nATSSubscriber) chunkedNATSReply(resp *ibus.Response, chunks <-chan []
 		return
 	}
 
-	counter := 0
 	for chunk := range chunks {
 		chunk = prependByte(chunk, firstByteInRegularMsg)
 		err = nc.Publish(subjToReply, chunk)
@@ -181,9 +179,7 @@ func (ns *nATSSubscriber) chunkedNATSReply(resp *ibus.Response, chunks <-chan []
 			*perr = err
 			return
 		}
-		counter++
 	}
-	log.Println("ibusnats: " + strconv.Itoa(counter) + " sent")
 
 	if perr != nil && *perr != nil {
 		ns.publishError(*perr, subjToReply)
