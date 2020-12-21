@@ -16,6 +16,7 @@ NATS implementation of ibus interface
       - `sections` must be readed till the end
       - `secErr` contains read error after `sections` close
   - `err` contains NATS-related errors occured before or during receiving the first response packet. `err` not nil -> impossible to determine the communication type
+    - also unknown `ibus.Request.QueueID` -> `err` error
 - The handler side: `ibus.RequestHandler()` is called by bus
    - call `ibus.SendResponse()` to send a single `ibus.Response`
      - then call `ibus.SendResponse()` again or `ibus.SendParallelResponse()` and use `ibus.IResultSenderCloseable` methods -> nothing happens, no error. New response is actually sent to NATS but skipped because publisher will unsubscribe from the topic after the first response packet receive

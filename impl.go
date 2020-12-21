@@ -446,6 +446,10 @@ func implSendRequest2(ctx context.Context,
 	var reqData []byte
 	reqData, _ = json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
 	srv := getService(ctx)
+	if _, ok := srv.Queues[request.QueueID]; !ok {
+		err = fmt.Errorf("unknown queue: %s", request.QueueID)
+		return
+	}
 	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
 	return sendToNATSAndGetResp(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
 }

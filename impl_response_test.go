@@ -234,3 +234,22 @@ func TestNormalResponseAfterParallelResponse(t *testing.T) {
 	require.False(t, ok)
 	require.Nil(t, *secErr)
 }
+
+func TestErrorOnUnknownQueue(t *testing.T) {
+	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {})
+	setUp()
+	defer tearDown()
+
+	req := ibus.Request{
+		Method:          ibus.HTTPMethodPOST,
+		QueueID:         "",
+		WSID:            1,
+		PartitionNumber: 0,
+		Resource:        "none",
+	}
+
+	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
+	require.Nil(t, sections)
+	require.Nil(t, secErr)
+	require.NotNil(t, err)
+}
