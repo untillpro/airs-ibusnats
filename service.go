@@ -1,18 +1,17 @@
 /*
- * Copyright (c) 2019-present unTill Pro, Ltd. and Contributors
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
+ * Copyright (c) 2020-present unTill Pro, Ltd.
  */
 
 package ibusnats
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 
 	"github.com/nats-io/nats.go"
 	ibus "github.com/untillpro/airs-ibus"
-	"github.com/untillpro/gochips"
 )
 
 // Service s.e.
@@ -23,52 +22,55 @@ type Service struct {
 	CurrentQueueName string
 	Parts            int
 	CurrentPart      int
-	// In router subs are nil, in app publisher nil
-	nATSPublisher   *nATSPublisher
-	nATSSubscribers map[int]*nATSSubscriber
+	Verbose          bool // verbose debug log if true
+	nATSPublisher    *nats.Conn
+	nATSSubscribers  map[int]*nATSSubscriber // partitionNumber->subscriber
 }
 
 type contextKeyType string
 
-const (
-	nATSKey = contextKeyType("nATSKey")
-	// DefaultNATSHost s.e.
-	DefaultNATSHost = "0.0.0.0"
-)
+const nATSKey = contextKeyType("nATSKey")
 
 func getService(ctx context.Context) *Service {
 	return ctx.Value(nATSKey).(*Service)
 }
 
 // Start s.e.
-func (s *Service) Start(ctx context.Context) (context.Context, error) {
-	var err error
-	s.nATSSubscribers, err = connectSubscribers(s)
-	if err != nil {
-		disconnectSubscribers(s.nATSSubscribers)
-		return ctx, err
+func (s *Service) Start(ctx context.Context) (newCtx context.Context, err error) {
+	if s.nATSSubscribers, err = connectSubscribers(s); err != nil {
+		return
 	}
-	s.nATSPublisher, err = connectPublisher(s.NATSServers)
-	if err != nil {
-		disconnectSubscribers(s.nATSSubscribers)
-		return ctx, err
+	if s.nATSPublisher, err = connectToNATS(s.NATSServers, "NATSPublisher"); err != nil {
+		return
 	}
-	actx := context.WithValue(ctx, nATSKey, s)
+	newCtx = context.WithValue(ctx, nATSKey, s)
 	for _, v := range s.nATSSubscribers {
 		var natsHandler nats.MsgHandler
-		natsHandler = v.invokeNATSHandler(actx, ibus.RequestHandler)
-		err := v.subscribe(natsHandler)
-		if err != nil {
-			v.worker.conn.Close()
-			gochips.Info(err)
+		natsHandler = generateNATSHandler(newCtx)
+		if err = v.subscribe(natsHandler); err != nil {
+			v.conn.Close()
+			return nil, err
 		}
 	}
-	return actx, nil
+	return
+}
+
+func generateNATSHandler(ctx context.Context) nats.MsgHandler {
+	return func(msg *nats.Msg) {
+		var req ibus.Request
+		sender := senderImpl{partNumber: req.PartitionNumber, replyTo: msg.Reply}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			ibus.SendResponse(ctx, sender,
+				ibus.CreateErrorResponse(http.StatusBadRequest, fmt.Errorf("request unmarshal failed: %w", err)))
+			return
+		}
+		ibus.RequestHandler(ctx, sender, req)
+	}
 }
 
 // Stop s.e.
 func (s *Service) Stop(ctx context.Context) {
 	unsubscribe(s.nATSSubscribers)
 	disconnectSubscribers(s.nATSSubscribers)
-	s.nATSPublisher.conn.Close()
+	s.nATSPublisher.Close()
 }
