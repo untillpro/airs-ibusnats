@@ -112,7 +112,8 @@ type element struct {
 
 func connectSubscribers(s *Service) (subscribers map[int]*nATSSubscriber, err error) {
 	if len(s.CurrentQueueName) == 0 {
-		return nil, errors.New("empty CurrentQueueName")
+		// router has no subscribers
+		return
 	}
 	numOfSubjects, ok := s.Queues[s.CurrentQueueName]
 	if !ok {

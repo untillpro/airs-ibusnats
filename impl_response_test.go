@@ -253,3 +253,29 @@ func TestErrorOnUnknownQueue(t *testing.T) {
 	require.Nil(t, secErr)
 	require.NotNil(t, err)
 }
+
+func TestHandlerPanic(t *testing.T) {
+	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
+		panic("test panic")
+	})
+
+	setUp()
+	defer tearDown()
+
+	req := ibus.Request{
+		Method:          ibus.HTTPMethodPOST,
+		QueueID:         "airs-bp",
+		WSID:            1,
+		PartitionNumber: 0,
+		Resource:        "none",
+	}
+
+	resp, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
+	require.Nil(t, sections)
+	require.Nil(t, secErr)
+	require.Nil(t, err)
+	require.Contains(t, string(resp.Data), "test panic")
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	require.Equal(t, "text/plain", resp.ContentType)
+	fmt.Println(string(resp.Data))
+}

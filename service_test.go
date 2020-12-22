@@ -25,26 +25,17 @@ func TestServiceStartErrors(t *testing.T) {
 	s := natsserver.RunServer(&opts)
 	defer s.Shutdown()
 
-	// empty CurrentQueueName -> service start error
+	// unknown CurrentQueueName -> error
 	service := Service{
 		NATSServers:      "nats://127.0.0.1:4222",
 		Parts:            1,
 		CurrentPart:      1,
 		Queues:           map[string]int{"airs-bp": 1},
-		CurrentQueueName: "",
+		CurrentQueueName: "unknown",
 	}
 	Declare(service)
 	godif.Require(&ibus.SendRequest2)
 	ctx, err := services.ResolveAndStart()
-	require.NotNil(t, err)
-	require.Nil(t, ctx)
-	godif.Reset()
-
-	// unknown CurrentQueueName -> error
-	service.CurrentQueueName = "unknown"
-	Declare(service)
-	godif.Require(&ibus.SendRequest2)
-	ctx, err = services.ResolveAndStart()
 	require.NotNil(t, err)
 	require.Nil(t, ctx)
 	godif.Reset()
@@ -75,6 +66,24 @@ func TestServiceStartErrors(t *testing.T) {
 	require.Nil(t, ctx)
 	patches.Reset()
 	godif.Reset()
+}
+
+func TestNoSubscribersOnEmptyCurrentQueueName(t *testing.T) {
+	DeclareTest(1)
+	service := Service{
+		NATSServers:      "nats://127.0.0.1:4222",
+		Parts:            1,
+		CurrentPart:      1,
+		Queues:           map[string]int{"airs-bp": 1},
+		CurrentQueueName: "",
+	}
+	Declare(service)
+	godif.Require(&ibus.SendRequest2)
+	ctx, err := services.ResolveAndStart()
+	require.Nil(t, err)
+	defer services.StopAndReset(ctx)
+	require.NotNil(t, ctx)
+	require.Empty(t, getService(ctx).nATSSubscribers)
 }
 
 func TestServiceStartErrors2(t *testing.T) {

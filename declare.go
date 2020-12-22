@@ -20,14 +20,13 @@ func Declare(service Service) {
 }
 
 // DeclareTest declares test NATS server. Useful for implement tests using the real NATS server
-func DeclareTest(partitionsAmount int) {
+func DeclareTest(partitionsAmount int) Service {
 	godif.ProvideSliceElement(&services.Services, &testServer{})
-	service := Service{
+	return Service{
 		NATSServers:      "nats://127.0.0.1:4222",
 		Parts:            1,
 		CurrentPart:      1,
 		Queues:           map[string]int{"airs-bp": partitionsAmount},
 		CurrentQueueName: "airs-bp",
 	}
-	Declare(service)
 }

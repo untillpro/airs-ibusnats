@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/nats-io/nats.go"
 	ibus "github.com/untillpro/airs-ibus"
@@ -64,6 +65,13 @@ func generateNATSHandler(ctx context.Context) nats.MsgHandler {
 				ibus.CreateErrorResponse(http.StatusBadRequest, fmt.Errorf("request unmarshal failed: %w", err)))
 			return
 		}
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debug.Stack()
+				ibus.SendResponse(ctx, sender, ibus.CreateErrorResponse(http.StatusInternalServerError,
+					fmt.Errorf("ibus.RequestHandler paniced: %v\n%s", r, string(stack))))
+			}
+		}()
 		ibus.RequestHandler(ctx, sender, req)
 	}
 }

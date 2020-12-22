@@ -524,7 +524,7 @@ func TestMapElementRawBytes(t *testing.T) {
 }
 
 func setUp() {
-	DeclareTest(1)
+	Declare(DeclareTest(1))
 	godif.Require(&ibus.SendParallelResponse2)
 	godif.Require(&ibus.SendRequest2)
 	godif.Require(&ibus.SendResponse)
