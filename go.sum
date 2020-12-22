@@ -27,8 +27,8 @@ github.com/stretchr/objx v0.2.0/go.mod h1:qt09Ya8vawLte6SNmTgCsAVtYtaKzEcn8ATUoH
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.5.1 h1:nOGnQDM7FYENwehXlg/kFVnos3rEvtKTjRvOWSzb6H4=
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
-github.com/untillpro/airs-ibus v0.0.0-20201221122938-b78cdcc3ab40 h1:RCYlBbuLPW0R/KjEC0iCxMqlPYVqOJWZhITPJB0rwi8=
-github.com/untillpro/airs-ibus v0.0.0-20201221122938-b78cdcc3ab40/go.mod h1:bNsd68NiMd2sXC0n6yIynKC5HD+iR8LRMH/bFZg1CHk=
+github.com/untillpro/airs-ibus v0.0.0-20201222145705-0b794c7a6bcb h1:gWhqhasSLFxcVn4pZr844LSjPWqHAlJp6g7g8J7pH1s=
+github.com/untillpro/airs-ibus v0.0.0-20201222145705-0b794c7a6bcb/go.mod h1:bNsd68NiMd2sXC0n6yIynKC5HD+iR8LRMH/bFZg1CHk=
 github.com/untillpro/gochips v1.12.0 h1:dqpXSAlg8YanktfK49GBAsZEjL3cwrXQ6xDAFOF79uU=
 github.com/untillpro/gochips v1.12.0/go.mod h1:us8QSJtQx+8SiWFqh2oAT7UMzhF73t21p3WFGn6Apao=
 github.com/untillpro/gochips v1.12.1-0.20191205115612-9cd10d0ac2b3 h1:6FcNUgKOtK6UqrjFGlW80WfrwgLjZPBdpUadFkw3mRw=
