@@ -4,7 +4,6 @@
 NATS implementation of ibus interface
 
 # Bus packets binary formats
-
 Response Stream = Response | ({Section+Elem | Elem} Close)
 Reponse = 0x0 ContentTypeLen_1 ContentType StatusCode_2 Data
 Section+Elem = (0x2 | 0x3 | 0x4) PathsCount_1 {PathLen_1 Path} LenSectionType_1 SectionType [LenElemName_1 ElemName] ElemBytes

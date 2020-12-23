@@ -132,7 +132,7 @@ func logStack(desc string, err error) {
 	}
 }
 
-func getSectionsFromNATS(ctx context.Context, sections chan ibus.ISection, sub *nats.Subscription, secErr *error, max time.Time,
+func getSectionsFromNATS(ctx context.Context, sections chan ibus.ISection, sub *nats.Subscription, secErr *error,
 	timeout time.Duration, firstMsg *nats.Msg, verbose bool) {
 	var currentSection *sectionData
 	defer func() {
@@ -329,8 +329,7 @@ func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []
 		return
 	}
 
-	// Wait for a single response
-	max := time.Now().Add(timeout)
+	// wait for the first packet
 	msg, err := sub.NextMsg(timeout)
 	if err != nil {
 		toWrap := err
@@ -357,7 +356,7 @@ func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []
 	secError = &secErr
 	sectionsW := make(chan ibus.ISection)
 	sections = sectionsW
-	go getSectionsFromNATS(ctx, sectionsW, sub, secError, max, timeout, msg, verbose)
+	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, msg, verbose)
 	return
 }
 
