@@ -5,18 +5,16 @@ NATS implementation of ibus interface
 
 # Bus packets binary formats
 
-Response Stream = Response | {Section+Elem | Elem} Close
+Response Stream = Response | ({Section+Elem | Elem} Close)
 Reponse = 0x0 ContentTypeLen_1 ContentType StatusCode_2 Data
 Section+Elem = (0x2 | 0x3 | 0x4) PathsCount_1 {PathLen_1 Path} LenSectionType_1 SectionType [LenElemName_1 ElemName] ElemBytes
 Elem = 0x5 [LenElemName_1 ElemName] ElemBytes
 Close = 0x1 [ErrorMessage]
 
 # Limitations
-- `ibus.IResultSenderCloseable`:
+- `ibus.IResultSenderClosable`:
   - `sectionType`, `path` elem and `elementName` max length is 255 chars
   - `[]path` max length is 255 elements
-- `IResultSenderCloseabe.Close()`: failed to send to NATS -> no error, nothing happens, just error is logged. Requester will get ibus.ErrTimeoutExpired at `*secErr`
-- `ibus.SendResponse()`:
-  - error on publish -> nothing happens, just error is logged
-  - wrong sender (not `senderImpl`) -> nothing happens, just error logged
+- `ibus.IResultSenderClosable.Close()`: failed to send to NATS -> no error, nothing happens, just error is logged. Requester will get `ibus.ErrTimeoutExpired` at `*secErr`
+- failed to publish at `ibus.SendResponse()` -> nothing happens, just error is logged. Requester will get `ibus.ErrTimeoutExpired` as `err`
 - failed to unsubscribe from the queue on service stop -> nothing happens, just error is logged
