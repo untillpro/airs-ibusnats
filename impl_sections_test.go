@@ -35,13 +35,13 @@ var (
 	expectedTotal = map[string]interface{}{
 		"total": float64(1),
 	}
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 )
 
 func TestSectionedCommunicationBasic(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
-		// wrong sender -> no error, nil is returned, error is logged
-		require.Nil(t, ibus.SendParallelResponse2(ctx, 42))
+		require.Panics(t, func() { ibus.SendParallelResponse2(ctx, 42) })
 
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Nil(t, rs.ObjectSection("secObj", []string{"meta"}, expectedTotal))
@@ -74,6 +74,7 @@ func TestSectionedCommunicationBasic(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
+	require.NotNil(t, sections)
 
 	section := <-sections
 	secObj := section.(ibus.IObjectSection)
@@ -184,6 +185,7 @@ func TestSectionedEmpty(t *testing.T) {
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
 	require.NotNil(t, secErr)
+	require.NotNil(t, sections)
 
 	// nothingness will not be transmitted
 	_, ok := <-sections
@@ -217,6 +219,7 @@ func TestSectionedEmptyButElements(t *testing.T) {
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
 	require.NotNil(t, secErr)
+	require.NotNil(t, sections)
 
 	sec := <-sections
 	secObj := sec.(ibus.IObjectSection)
@@ -272,6 +275,7 @@ func TestSectionedEmptyButElementsAndType(t *testing.T) {
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
 	require.NotNil(t, secErr)
+	require.NotNil(t, sections)
 
 	sec := <-sections
 	secObj := sec.(ibus.IObjectSection)
@@ -341,6 +345,8 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 		Resource:        "none",
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
+	require.NotNil(t, sections)
+
 	sec, ok := <-sections
 	sec.(ibus.IObjectSection).Value()
 	require.True(t, ok)
@@ -351,51 +357,17 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestSectionedCommunicationTimeout(t *testing.T) {
-	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
-		rs := ibus.SendParallelResponse2(ctx, sender)
-		require.Nil(t, rs.ObjectSection("", nil, 42))
-		time.Sleep(100 * time.Millisecond)
-		require.Nil(t, rs.ObjectSection("", nil, 43))
-		time.Sleep(100 * time.Millisecond)
-		require.Nil(t, rs.ObjectSection("", nil, 44))
-		rs.Close(nil)
-	})
-
-	setUp()
-	defer tearDown()
-
-	req := ibus.Request{
-		Method:          ibus.HTTPMethodPOST,
-		QueueID:         "airs-bp",
-		WSID:            1,
-		PartitionNumber: 0,
-		Resource:        "none",
-	}
-	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
-	sec := <-sections
-	sec.(ibus.IObjectSection).Value()
-	sec = <-sections
-	sec.(ibus.IObjectSection).Value()
-	sec = <-sections
-	sec.(ibus.IObjectSection).Value()
-	_, ok := <-sections
-	require.False(t, ok)
-	require.True(t, errors.Is(*secErr, ibus.ErrTimeoutExpired))
-	fmt.Println(*secErr)
-	require.Nil(t, err)
-
-}
-
 func TestStopOnMapSectionNextElemOnTimeout(t *testing.T) {
+	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.StartMapSection("secArr", []string{"class"})
 		require.Nil(t, rs.SendElement("f1", "v1"))
-		require.Nil(t, rs.SendElement("f1", "v2"))
-		require.Nil(t, rs.SendElement("f1", "v3"))
+		<-ch                                       // wait for context cancel
+		require.Nil(t, rs.SendElement("f1", "v2")) // will be lost
+		require.Nil(t, rs.SendElement("f1", "v3")) // will be lost
 
-		rs.Close(nil)
+		rs.Close(nil) // will be lost
 	})
 
 	setUp()
@@ -411,32 +383,39 @@ func TestStopOnMapSectionNextElemOnTimeout(t *testing.T) {
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
 	require.Nil(t, err, err)
 	require.NotNil(t, secErr)
+	require.NotNil(t, sections)
 
 	section := <-sections
 	mapSec := section.(ibus.IMapSection)
-	_, _, ok := mapSec.Next() // came with section, no timeout, going to write next
+	_, _, ok := mapSec.Next() // came with section, going to write next
 	require.True(t, ok)
-	time.Sleep(300 * time.Millisecond)
-	_, _, ok = mapSec.Next() //next written, going to check timeout at getSectionsFromNAT()
-	require.True(t, ok)
-	name, val, ok := mapSec.Next() // closed because timeout
+
+	cancel()
+	ch <- struct{}{} //signal to send something more after context cancel
+
+	name, val, ok := mapSec.Next() // closed because context is done. Further 2 sections are lost.
 	require.False(t, ok)
 	require.Nil(t, val)
 	require.Empty(t, name)
+
+	// further sections are sent by handler but lost on requester side
+
 	_, ok = <-sections
 	require.False(t, ok)
-	require.NotNil(t, *secErr) // communicating is terminated because it took too much time
+	require.Nil(t, *secErr)
 }
 
 func TestStopOnArraySectionNextElemOnTimeout(t *testing.T) {
+	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.StartArraySection("secArr", []string{"class"})
 		require.Nil(t, rs.SendElement("", "arrEl1"))
-		require.Nil(t, rs.SendElement("", "arrEl2"))
-		require.Nil(t, rs.SendElement("", "arrEl3"))
+		<-ch                                         //wait for context close
+		require.Nil(t, rs.SendElement("", "arrEl2")) // will be send and lost
+		require.Nil(t, rs.SendElement("", "arrEl3")) // will be send and lost
 
-		rs.Close(nil)
+		rs.Close(nil) // will be send and lost
 	})
 
 	setUp()
@@ -452,20 +431,23 @@ func TestStopOnArraySectionNextElemOnTimeout(t *testing.T) {
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
 	require.Nil(t, err, err)
 	require.NotNil(t, secErr)
+	require.NotNil(t, sections)
 
 	section := <-sections
 	arrSec := section.(ibus.IArraySection)
 	_, ok := arrSec.Next() // came with section, no timeout, going to write next
 	require.True(t, ok)
-	time.Sleep(300 * time.Millisecond)
-	_, ok = arrSec.Next() //next written, going to check timeout at getSectionsFromNAT()
-	require.True(t, ok)
-	val, ok := arrSec.Next() // closed because timeout
+
+	cancel()
+	ch <- struct{}{} //signal send more on cancelled context
+
+	val, ok := arrSec.Next() // closed due of cancelled context
 	require.False(t, ok)
 	require.Nil(t, val)
+
 	_, ok = <-sections
 	require.False(t, ok)
-	require.NotNil(t, *secErr) // communicating is terminated because it took too much time
+	require.Nil(t, *secErr)
 }
 
 func TestMapElementRawBytes(t *testing.T) {
@@ -493,6 +475,8 @@ func TestMapElementRawBytes(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
+	require.NotNil(t, sections)
+	require.NotNil(t, secErr)
 
 	section := <-sections
 	secMap := section.(ibus.IMapSection)
@@ -530,7 +514,8 @@ func setUp() {
 	godif.Require(&ibus.SendResponse)
 	godif.Require(&ibus.RequestHandler)
 	var err error
-	ctx, err = services.ResolveAndStart()
+	ctx, cancel = context.WithCancel(context.Background())
+	ctx, err = services.ResolveAndStartCtx(ctx)
 	gochips.PanicIfError(err)
 	getService(ctx).Verbose = true
 }

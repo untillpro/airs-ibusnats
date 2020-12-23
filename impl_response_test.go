@@ -26,6 +26,10 @@ func TestBasic(t *testing.T) {
 			StatusCode:  http.StatusOK,
 			Data:        dataBytes,
 		}
+
+		// wrong sender -> panic
+		require.Panics(t, func() { ibus.SendResponse(ctx, "wrong sender", resp) })
+
 		ibus.SendResponse(ctx, sender, resp)
 	})
 
@@ -99,34 +103,6 @@ func TestRequestUnmarshalFailed(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	fmt.Println(string(resp.Data))
-}
-
-func TestWrongSenderProvidedOnResponse(t *testing.T) {
-	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
-		resp := ibus.Response{
-			StatusCode: http.StatusOK,
-		}
-		ibus.SendResponse(ctx, "wrong sender", resp)
-		ibus.SendResponse(ctx, sender, resp)
-	})
-
-	setUp()
-	defer tearDown()
-
-	req := ibus.Request{
-		Method:          ibus.HTTPMethodPOST,
-		QueueID:         "airs-bp",
-		WSID:            1,
-		PartitionNumber: 0,
-		Resource:        "none",
-		Body:            []byte{0}, // unmarshallable
-	}
-
-	resp, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Nil(t, sections)
-	require.Nil(t, secErr)
-	require.Nil(t, err)
 }
 
 func TestMultipleResponse(t *testing.T) {

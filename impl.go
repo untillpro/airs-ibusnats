@@ -11,13 +11,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"runtime/debug"
 	"strconv"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	ibus "github.com/untillpro/airs-ibus"
-	"github.com/untillpro/gochips"
 	"github.com/valyala/bytebufferpool"
 )
 
@@ -29,6 +29,22 @@ const (
 	busPacketSectionObject
 	busPacketSectionElement
 )
+
+// used in tests
+var onReconnect func() = nil
+
+func implSendRequest2(ctx context.Context,
+	request ibus.Request, timeout time.Duration) (res ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
+	var reqData []byte
+	reqData, _ = json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
+	srv := getService(ctx)
+	if _, ok := srv.Queues[request.QueueID]; !ok {
+		err = fmt.Errorf("unknown queue: %s", request.QueueID)
+		return
+	}
+	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
+	return sendToNATSAndGetResp(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
+}
 
 type senderImpl struct {
 	partNumber int
@@ -60,9 +76,6 @@ type sectionDataObject struct {
 	valueGot bool
 }
 
-// used in tests
-var onReconnect func() = nil
-
 type implIResultSenderCloseable struct {
 	subjToReply        string
 	nc                 *nats.Conn
@@ -70,6 +83,11 @@ type implIResultSenderCloseable struct {
 	currentSectionType string
 	currentSectionPath []string
 	sectionStartSent   bool
+}
+
+type element struct {
+	name  string
+	value []byte
 }
 
 func (s *sectionData) Type() string {
@@ -105,82 +123,13 @@ func (s *sectionDataObject) Value() []byte {
 	return elem.value
 }
 
-type element struct {
-	name  string
-	value []byte
-}
-
-func connectSubscribers(s *Service) (subscribers map[int]*nATSSubscriber, err error) {
-	if len(s.CurrentQueueName) == 0 {
-		// router has no subscribers
-		return
-	}
-	numOfSubjects, ok := s.Queues[s.CurrentQueueName]
-	if !ok {
-		return nil, errors.New("can't find number of subjects in queues map")
-	}
-	minPart := 0
-	maxPart := numOfSubjects
-	// these are zero -> publisher only, e.g. router
-	if s.Parts != 0 && s.CurrentPart != 0 {
-		if s.Parts > numOfSubjects {
-			if s.CurrentPart >= numOfSubjects {
-				minPart = 0
-				maxPart = 0
-			} else {
-				minPart = s.CurrentPart - 1
-				maxPart = s.CurrentPart
-			}
-		} else {
-			partitionsInOnePart := numOfSubjects / s.Parts
-			if s.Parts == s.CurrentPart {
-				maxPart = numOfSubjects
-			} else {
-				maxPart = s.CurrentPart * partitionsInOnePart
-			}
-			minPart = partitionsInOnePart * (s.CurrentPart - 1)
-		}
-	}
-	gochips.Info("Partition range:", minPart, "-", maxPart-1)
-	subscribers = map[int]*nATSSubscriber{}
-	for i := minPart; i < maxPart; i++ {
-		conn, err := connectToNATS(s.NATSServers, s.CurrentQueueName+strconv.Itoa(i))
-		if err != nil {
-			return nil, err
-		}
-		subscribers[i] = &nATSSubscriber{conn, nil}
-	}
-	return
-}
-
-func notify(desc string, err error) {
+func logStack(desc string, err error) {
 	stackTrace := string(debug.Stack())
 	if err == nil {
-		gochips.Error(fmt.Errorf("%s\n%s", desc, stackTrace))
+		log.Println(fmt.Sprintf("%s\n%s", desc, stackTrace))
 	} else {
-		gochips.Error(fmt.Errorf("%s: %w\n%s", desc, err, stackTrace))
+		log.Println(fmt.Sprintf("%s: %s\n%s", desc, err.Error(), stackTrace))
 	}
-}
-
-func unsubscribe(subscribers map[int]*nATSSubscriber) {
-	for _, s := range subscribers {
-		if err := s.subscription.Unsubscribe(); err != nil {
-			notify("unsubscribe failed", err)
-		}
-	}
-}
-
-func disconnectSubscribers(subscribers map[int]*nATSSubscriber) {
-	for _, s := range subscribers {
-		s.conn.Close()
-	}
-}
-
-func connectToNATS(servers string, subjName string) (conn *nats.Conn, err error) {
-	opts := setupConnOptions([]nats.Option{nats.Name(subjName)})
-	opts = setupConnOptions(opts)
-	conn, err = nats.Connect(servers, opts...)
-	return
 }
 
 func getSectionsFromNATS(ctx context.Context, sections chan ibus.ISection, sub *nats.Subscription, secErr *error, max time.Time,
@@ -195,10 +144,14 @@ func getSectionsFromNATS(ctx context.Context, sections chan ibus.ISection, sub *
 		closeSection(currentSection)
 		close(sections)
 	}()
+	msg := firstMsg
 	for {
-		var msg *nats.Msg
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		if firstMsg != nil {
-			msg = firstMsg
 			firstMsg = nil
 		} else {
 			msg, *secErr = sub.NextMsg(timeout)
@@ -211,62 +164,59 @@ func getSectionsFromNATS(ctx context.Context, sections chan ibus.ISection, sub *
 				return
 			}
 			if verbose {
-				fmt.Printf("%s packet recevied %s:\n%s", sub.Subject, busPacketTypeToString(msg.Data), hex.Dump(msg.Data))
+				log.Printf("%s packet received %s:\n%s", sub.Subject, busPacketTypeToString(msg.Data), hex.Dump(msg.Data))
 			}
 		}
 
 		// msg.Data to ISection
-		switch msg.Data[len(msg.Data)-1] {
+		switch msg.Data[0] {
 		case busPacketClose:
 			if len(msg.Data) > 1 {
-				*secErr = errors.New(string(msg.Data[:len(msg.Data)-1]))
+				*secErr = errors.New(string(msg.Data[1:]))
 			}
 			return
 		case busPacketSectionMap, busPacketSectionArray, busPacketSectionObject:
-			/*
-							| for non-array sections only  |
-				elemBytes | elem name | 1x len(elemName) | sectionType | 1xlen(sectionType) | [](path | 1x len(path)) | 1x len(path) | sectionMark |
-			*/
-
-			// read len(path)
-			pos := byte(len(msg.Data) - 2) // points to len(path)
+			// sectionMark_1 | len(path)_1 | []( 1x len(path) | path ) |  1xlen(sectionType) | sectionType | 1x len(elemName) | elem name | elemBytes
+			pos := 1
 			lenPath := msg.Data[pos]
 			var path []string
-			pos--
+			pos++
 			if lenPath == 0 {
 				path = nil
 			} else {
 				path = make([]string, lenPath, lenPath)
-				for i := int(lenPath) - 1; i >= 0; i-- {
-					pathElemLen := msg.Data[pos]
-					path[i] = string(msg.Data[pos-pathElemLen : pos])
-					pos -= pathElemLen + 1
+				for i := 0; i < int(lenPath); i++ {
+					lenP := int(msg.Data[pos])
+					pos++
+					path[i] = string(msg.Data[pos : pos+lenP])
+					pos += lenP
 				}
 			}
-
-			sectionTypeLen := msg.Data[pos]
-			sectionType := string(msg.Data[pos-sectionTypeLen : pos])
-			pos -= sectionTypeLen
+			sectionTypeLen := int(msg.Data[pos])
+			pos++
+			sectionType := string(msg.Data[pos : pos+sectionTypeLen])
 			elemName := ""
-			if msg.Data[len(msg.Data)-1] != busPacketSectionArray && msg.Data[len(msg.Data)-1] != busPacketSectionObject {
-				pos--
-				elemNameLen := msg.Data[pos]
-				elemName = string(msg.Data[pos-elemNameLen : pos])
-				pos -= elemNameLen
+			pos += sectionTypeLen
+			if msg.Data[0] == busPacketSectionMap {
+				elemNameLen := int(msg.Data[pos])
+				pos++
+				elemName = string(msg.Data[pos : pos+elemNameLen])
+				pos += elemNameLen
 			}
-			elemBytes := msg.Data[:pos]
+			elemBytes := msg.Data[pos:]
+
 			closeSection(currentSection)
 			currentSection = &sectionData{
 				sectionType: sectionType,
 				path:        path,
 				elems:       make(chan element),
 			}
-			switch msg.Data[len(msg.Data)-1] {
+			switch msg.Data[0] {
 			case busPacketSectionArray:
 				currentSection.sectionKind = ibus.SectionKindArray
 				sectionArray := &sectionDataArray{sectionData: currentSection}
 				if verbose {
-					fmt.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionKindToString(sectionArray.sectionKind), sectionArray.sectionType, sectionArray.path)
+					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionKindToString(sectionArray.sectionKind), sectionArray.sectionType, sectionArray.path)
 				}
 				sections <- sectionArray
 			case busPacketSectionMap:
@@ -287,31 +237,26 @@ func getSectionsFromNATS(ctx context.Context, sections chan ibus.ISection, sub *
 			currentSection.elems <- element{elemName, elemBytes}
 		case busPacketSectionElement:
 			elemName := ""
-			pos := byte(len(msg.Data) - 1)
-			if currentSection.sectionKind != ibus.SectionKindArray {
-				pos--
-				elemNameLen := msg.Data[pos]
-				elemName = string(msg.Data[pos-elemNameLen : pos])
-				pos -= elemNameLen
+			pos := 1
+			if currentSection.sectionKind == ibus.SectionKindMap {
+				elemNameLen := int(msg.Data[pos])
+				pos++
+				elemName = string(msg.Data[pos : pos+elemNameLen])
+				pos += elemNameLen
 			}
-			elemBytes := msg.Data[:pos]
+			elemBytes := msg.Data[pos:]
 			currentSection.elems <- element{elemName, elemBytes}
 		}
-
-		if !time.Now().Before(max) {
-			break
-		}
 	}
-	*secErr = fmt.Errorf("sectioned communication is terminated: %w", ibus.ErrTimeoutExpired)
 }
 
 func (ns *nATSSubscriber) sendSingleResponseToNATS(resp ibus.Response, subjToReply string) {
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
-	serializeResponse(b, resp)
 	b.WriteByte(busPacketResponse)
+	serializeResponse(b, resp)
 	if err := ns.conn.Publish(subjToReply, b.B); err != nil {
-		notify("publish to NATS on NATSReply()", err)
+		logStack("publish to NATS on NATSReply()", err)
 	}
 }
 
@@ -329,12 +274,12 @@ func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
 		err = fmt.Errorf("conn.LastError not nil: %w", err)
 		return
 	}
-	gochips.Info("Subscribe for subj", conn.Opts.Name)
+	log.Println("Subscribe for subj", conn.Opts.Name)
 	return
 }
 
 func busPacketTypeToString(data []byte) string {
-	switch data[len(data)-1] {
+	switch data[0] {
 	case busPacketResponse:
 		return "RESP"
 	case busPacketClose:
@@ -377,7 +322,7 @@ func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []
 
 	// Send the request
 	if verbose {
-		fmt.Printf("sending request to NATS: %s->%s\n%s", partitionKey, replyTo, hex.Dump(data))
+		log.Printf("sending request to NATS: %s->%s\n%s", partitionKey, replyTo, hex.Dump(data))
 	}
 	if err = publisherConn.PublishRequest(partitionKey, replyTo, data); err != nil {
 		err = fmt.Errorf("PublishRequest failed: %w", err)
@@ -403,8 +348,8 @@ func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []
 	// check the last byte. It is the packet type
 	// if kind of section -> there will nothing but sections or error
 	// response -> there will be nothing more
-	if msg.Data[len(msg.Data)-1] == busPacketResponse {
-		resp = deserializeResponse(msg.Data[:len(msg.Data)-1])
+	if msg.Data[0] == busPacketResponse {
+		resp = deserializeResponse(msg.Data[1:])
 		err = sub.Unsubscribe()
 		return
 	}
@@ -423,44 +368,28 @@ func setupConnOptions(opts []nats.Option) []nats.Option {
 	opts = append(opts, nats.ReconnectWait(reconnectDelay))
 	opts = append(opts, nats.MaxReconnects(int(totalWait/reconnectDelay)))
 	opts = append(opts, nats.DisconnectHandler(func(nc *nats.Conn) {
-		gochips.Error(nc.Opts.Name + " disconnected")
+		log.Println(nc.Opts.Name, "disconnected")
 	}))
 	opts = append(opts, nats.ReconnectHandler(func(nc *nats.Conn) {
 		if onReconnect != nil {
 			// happens in tests
 			onReconnect()
 		}
-		gochips.Error(nc.Opts.Name + " reconnected")
+		log.Println(nc.Opts.Name, "reconnected")
 	}))
 	opts = append(opts, nats.ClosedHandler(func(nc *nats.Conn) {
-		gochips.Error(nc.Opts.Name + " closed")
+		log.Println(nc.Opts.Name, "closed")
 	}))
 	opts = append(opts, nats.ErrorHandler(func(nc *nats.Conn, s *nats.Subscription, err error) {
-		gochips.Error(nc.Opts.Name + " error: " + err.Error())
+		log.Println(nc.Opts.Name, "error:", err.Error())
 	}))
 
 	return opts
 }
 
-func implSendRequest2(ctx context.Context,
-	request ibus.Request, timeout time.Duration) (res ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
-	var reqData []byte
-	reqData, _ = json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
-	srv := getService(ctx)
-	if _, ok := srv.Queues[request.QueueID]; !ok {
-		err = fmt.Errorf("unknown queue: %s", request.QueueID)
-		return
-	}
-	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
-	return sendToNATSAndGetResp(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
-}
-
+// panics if wrong sender provided
 func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response) {
-	sImpl, ok := sender.(senderImpl)
-	if !ok {
-		notify("wrong sender provided", nil)
-		return
-	}
+	sImpl := sender.(senderImpl)
 	srv := getService(ctx)
 	srv.nATSSubscribers[sImpl.partNumber].sendSingleResponseToNATS(response, sImpl.replyTo)
 }
@@ -468,12 +397,12 @@ func implSendResponse(ctx context.Context, sender interface{}, response ibus.Res
 func (rs *implIResultSenderCloseable) Close(err error) {
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
+	b.WriteByte(busPacketClose)
 	if err != nil {
 		b.WriteString(err.Error())
 	}
-	b.WriteByte(busPacketClose)
 	if errPub := rs.nc.Publish(rs.subjToReply, b.B); errPub != nil {
-		notify("failed to publish to NATS on IResultSenderCloseable.Close", errPub)
+		logStack("failed to publish to NATS on IResultSenderCloseable.Close", errPub)
 	}
 }
 
@@ -510,12 +439,7 @@ func (rs *implIResultSenderCloseable) ObjectSection(sectionType string, path []s
 	return rs.SendElement("", element)
 }
 
-/*
-              | for non-array sections only |
-	elemBytes | elem name | 1x len(elemName) | sectionType | 1xlen(sectionType) | [](path | 1x len(path)) | 1x len(path) | sectionMark |
-
-*/
-
+// sectionMark_1 | len(path)_1 | []( 1x len(path) | path ) |  1xlen(sectionType) | sectionType | 1x len(elemName) | elem name | elemBytes
 func (rs *implIResultSenderCloseable) SendElement(name string, element interface{}) (err error) {
 	if element == nil {
 		// will not send nothingness
@@ -527,37 +451,31 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 	}
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
-	b.Write(bytesElem)
-	if rs.currentSection != busPacketSectionArray && rs.currentSection != busPacketSectionObject {
-		b.WriteString(name)
-		b.WriteByte(byte(len(name)))
-	}
 	if !rs.sectionStartSent {
-		// write sectionTypeName
-		b.WriteString(rs.currentSectionType)
-		b.WriteByte(byte(len(rs.currentSectionType)))
-		// write path elements
-		for _, p := range rs.currentSectionPath {
-			b.WriteString(p)
-			b.WriteByte(byte(len(p)))
-		}
-		// write path elements amount
-		b.WriteByte(byte(len(rs.currentSectionPath)))
-		// write type of the section (1byte)
 		b.WriteByte(rs.currentSection)
+		b.WriteByte(byte(len(rs.currentSectionPath)))
+		for _, p := range rs.currentSectionPath {
+			b.WriteByte(byte(len(p)))
+			b.WriteString(p)
+		}
+		b.WriteByte(byte(len(rs.currentSectionType)))
+		b.WriteString(rs.currentSectionType)
+
 		rs.sectionStartSent = true
 	} else {
 		b.WriteByte(busPacketSectionElement)
 	}
+	if rs.currentSection == busPacketSectionMap {
+		b.WriteByte(byte(len(name)))
+		b.WriteString(name)
+	}
+	b.Write(bytesElem)
 	return rs.nc.Publish(rs.subjToReply, b.B)
 }
 
+// panics on wrong sender
 func implSendParallelResponse2(ctx context.Context, sender interface{}) (rsender ibus.IResultSenderClosable) {
-	sImpl, ok := sender.(senderImpl)
-	if !ok {
-		gochips.Error("can't get part number and reply to from sender iface")
-		return
-	}
+	sImpl := sender.(senderImpl)
 	srv := getService(ctx)
 	return &implIResultSenderCloseable{
 		subjToReply: sImpl.replyTo,
