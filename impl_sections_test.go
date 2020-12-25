@@ -14,29 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	ibus "github.com/untillpro/airs-ibus"
-	"github.com/untillpro/gochips"
 	"github.com/untillpro/godif"
 	"github.com/untillpro/godif/services"
-)
-
-var (
-	expected1 = map[string]interface{}{
-		"fld1": "fld1Val",
-	}
-	expected2 = map[string]interface{}{
-		"fld2": "fld2Val",
-	}
-	expected3 = map[string]interface{}{
-		"fld3": "fld3Val",
-	}
-	expected4 = map[string]interface{}{
-		"fld4": "fld4Val",
-	}
-	expectedTotal = map[string]interface{}{
-		"total": float64(1),
-	}
-	ctx    context.Context
-	cancel context.CancelFunc
 )
 
 func TestSectionedCommunicationBasic(t *testing.T) {
@@ -162,7 +141,7 @@ func TestSectionedEmpty(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 
-		// nothingness will not be transferred
+		// nothingness will not be trasmitted
 		require.Nil(t, rs.ObjectSection("", nil, nil))
 		rs.StartMapSection("", nil)
 		require.Nil(t, rs.SendElement("", nil))
@@ -516,8 +495,10 @@ func setUp() {
 	var err error
 	ctx, cancel = context.WithCancel(context.Background())
 	ctx, err = services.ResolveAndStartCtx(ctx)
-	gochips.PanicIfError(err)
-	getService(ctx).Verbose = true
+	if err != nil {
+		panic(err)
+	}
+	srv.Verbose = true
 }
 
 func tearDown() {
@@ -531,3 +512,23 @@ func mapFromJSON(jsonBytes []byte) map[string]interface{} {
 	}
 	return res
 }
+
+var (
+	expected1 = map[string]interface{}{
+		"fld1": "fld1Val",
+	}
+	expected2 = map[string]interface{}{
+		"fld2": "fld2Val",
+	}
+	expected3 = map[string]interface{}{
+		"fld3": "fld3Val",
+	}
+	expected4 = map[string]interface{}{
+		"fld4": "fld4Val",
+	}
+	expectedTotal = map[string]interface{}{
+		"total": float64(1),
+	}
+	ctx    context.Context
+	cancel context.CancelFunc
+)

@@ -18,6 +18,8 @@ import (
 	ibus "github.com/untillpro/airs-ibus"
 )
 
+var srv *Service
+
 // Service s.e.
 type Service struct {
 	// Comma separated list of servers
@@ -35,12 +37,9 @@ type contextKeyType string
 
 const nATSKey = contextKeyType("nATSKey")
 
-func getService(ctx context.Context) *Service {
-	return ctx.Value(nATSKey).(*Service)
-}
-
 // Start s.e.
 func (s *Service) Start(ctx context.Context) (newCtx context.Context, err error) {
+	srv = s
 	if err = s.connectSubscribers(); err != nil {
 		return
 	}

@@ -11,8 +11,8 @@ import (
 )
 
 // Declare s.e.
-func Declare(service Service) {
-	godif.ProvideSliceElement(&services.Services, &service)
+func Declare(service *Service) {
+	godif.ProvideSliceElement(&services.Services, service)
 	godif.Provide(&ibus.SendRequest2, implSendRequest2)
 	godif.Provide(&ibus.SendResponse, implSendResponse)
 	godif.Provide(&ibus.SendParallelResponse2, implSendParallelResponse2)
@@ -20,9 +20,9 @@ func Declare(service Service) {
 }
 
 // DeclareTest declares test NATS server. Useful for implement tests using the real NATS server
-func DeclareTest(partitionsAmount int) Service {
+func DeclareTest(partitionsAmount int) *Service {
 	godif.ProvideSliceElement(&services.Services, &testServer{})
-	return Service{
+	return &Service{
 		NATSServers:      "nats://127.0.0.1:4222",
 		Parts:            1,
 		CurrentPart:      1,

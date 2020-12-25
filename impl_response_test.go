@@ -97,9 +97,8 @@ func TestRequestUnmarshalFailed(t *testing.T) {
 		Resource:        "none",
 		Body:            []byte{0}, // unmarshallable
 	}
-	worker := getService(ctx)
 	qName := req.QueueID + strconv.Itoa(req.PartitionNumber)
-	resp, _, _, err := sendToNATSAndGetResp(ctx, worker.nATSPublisher, []byte("unmarshallable"), qName, ibus.DefaultTimeout, false)
+	resp, _, _, err := sendToNATSAndGetResp(ctx, srv.nATSPublisher, []byte("unmarshallable"), qName, ibus.DefaultTimeout, false)
 	require.Nil(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	fmt.Println(string(resp.Data))

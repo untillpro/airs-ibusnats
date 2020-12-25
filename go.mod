@@ -8,8 +8,7 @@ require (
 	github.com/nats-io/nats-server v1.4.1
 	github.com/nats-io/nats.go v1.10.0
 	github.com/stretchr/testify v1.5.1
-	github.com/untillpro/airs-ibus v0.0.0-20201223121106-1a4fa5fe72f9
-	github.com/untillpro/gochips v1.12.1-0.20191205115612-9cd10d0ac2b3
+	github.com/untillpro/airs-ibus v0.0.0-20201224151955-323c03f2a6a0
 	github.com/untillpro/godif v0.18.0
 	github.com/valyala/bytebufferpool v1.0.0
 )

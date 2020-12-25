@@ -40,7 +40,7 @@ func BenchmarkSectionedRequestResponse(b *testing.B) {
 	setUp()
 	defer tearDown()
 
-	getService(ctx).Verbose = false
+	srv.Verbose = false
 	services.SetVerbose(false)
 
 	req := ibus.Request{

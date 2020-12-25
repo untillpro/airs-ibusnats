@@ -17,3 +17,4 @@ Close = 0x1 [ErrorMessage]
 - `ibus.IResultSenderClosable.Close()`: failed to send to NATS -> no error, nothing happens, just error is logged. Requester will get `ibus.ErrTimeoutExpired` at `*secErr`
 - failed to publish at `ibus.SendResponse()` -> nothing happens, just error is logged. Requester will get `ibus.ErrTimeoutExpired` as `err`
 - failed to unsubscribe from the queue on service stop -> nothing happens, just error is logged
+- Service stops in 10 seconds maximum (message awaiting timeout)

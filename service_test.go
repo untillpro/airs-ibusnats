@@ -26,7 +26,7 @@ func TestServiceStartErrors(t *testing.T) {
 	defer s.Shutdown()
 
 	// unknown CurrentQueueName -> error
-	service := Service{
+	service := &Service{
 		NATSServers:      "nats://127.0.0.1:4222",
 		Parts:            1,
 		CurrentPart:      1,
@@ -70,7 +70,7 @@ func TestServiceStartErrors(t *testing.T) {
 
 func TestNoSubscribersOnEmptyCurrentQueueName(t *testing.T) {
 	DeclareTest(1)
-	service := Service{
+	service := &Service{
 		NATSServers:      "nats://127.0.0.1:4222",
 		Parts:            1,
 		CurrentPart:      1,
@@ -83,7 +83,7 @@ func TestNoSubscribersOnEmptyCurrentQueueName(t *testing.T) {
 	require.Nil(t, err)
 	defer services.StopAndReset(ctx)
 	require.NotNil(t, ctx)
-	require.Empty(t, getService(ctx).nATSSubscribers)
+	require.Empty(t, srv.nATSSubscribers)
 }
 
 func TestServiceStartErrors2(t *testing.T) {
@@ -93,7 +93,7 @@ func TestServiceStartErrors2(t *testing.T) {
 	defer s.Shutdown()
 
 	// empty CurrentQueueName -> service start error
-	service := Service{
+	service := &Service{
 		NATSServers:      "nats://127.0.0.1:4222",
 		Parts:            1,
 		CurrentPart:      1,
@@ -185,7 +185,7 @@ func TestPartsAssigning(t *testing.T) {
 	s := natsserver.RunServer(&opts)
 	defer s.Shutdown()
 
-	srvTests := map[*[]int]Service{
+	srvTests := map[*[]int]*Service{
 		{0, 1, 2}: {
 			Parts:       2,
 			CurrentPart: 1,
@@ -229,7 +229,6 @@ func TestPartsAssigning(t *testing.T) {
 		godif.Require(&ibus.SendRequest2)
 		ctx, err := services.ResolveAndStart()
 		require.Nil(t, err)
-		srv := getService(ctx)
 		require.Len(t, srv.nATSSubscribers, len(*partNumbers))
 		services.StopAndReset(ctx)
 	}
