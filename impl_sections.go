@@ -59,7 +59,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 		}
 		select {
 		case <-ctx.Done():
-			log.Println("received packed will be skipped because the context is closed")
+			log.Println("received one and further packets will be skipped because the context is closed")
 			return
 		default:
 		}
@@ -232,6 +232,7 @@ func (s *sectionDataArray) Next() (value []byte, ok bool) {
 	case _, ok = <-s.ctx.Done():
 		for range s.elems {
 		}
+		fmt.Println("section", s.sectionType, ": elements are skipped because context is closed")
 		return
 	case elem, ok = <-s.elems:
 		return elem.value, ok
@@ -244,6 +245,7 @@ func (s *sectionDataMap) Next() (name string, value []byte, ok bool) {
 	case _, ok = <-s.ctx.Done():
 		for range s.elems {
 		}
+		fmt.Println("section", s.sectionType, ": elements are skipped because context is closed")
 		return
 	case elem, ok = <-s.elems:
 		return elem.name, elem.value, ok
