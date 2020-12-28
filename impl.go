@@ -63,9 +63,9 @@ type nATSSubscriber struct {
 func logStack(desc string, err error) {
 	stackTrace := string(debug.Stack())
 	if err == nil {
-		log.Println(fmt.Sprintf("%s\n%s", desc, stackTrace))
+		log.Printf("%s\n%s\n", desc, stackTrace)
 	} else {
-		log.Println(fmt.Sprintf("%s: %s\n%s", desc, err.Error(), stackTrace))
+		log.Printf("%s: %s\n%s\n", desc, err.Error(), stackTrace)
 	}
 }
 
@@ -128,7 +128,7 @@ func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []
 	}
 
 	if verbose {
-		fmt.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(msg.Data), hex.Dump(msg.Data))
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(msg.Data), hex.Dump(msg.Data))
 	}
 
 	// determine communication type by the first packet type

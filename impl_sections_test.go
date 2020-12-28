@@ -134,7 +134,7 @@ func TestSectionedCommunicationBasic(t *testing.T) {
 
 	_, ok = <-sections
 	require.False(t, ok)
-	require.NotNil(t, *secErr) // test error
+	require.NotNil(t, *secErr, *secErr) // test error
 }
 
 func TestSectionedEmpty(t *testing.T) {
@@ -336,7 +336,7 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestStopOnMapSectionNextElemOnTimeout(t *testing.T) {
+func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
@@ -384,7 +384,7 @@ func TestStopOnMapSectionNextElemOnTimeout(t *testing.T) {
 	require.Nil(t, *secErr)
 }
 
-func TestStopOnArraySectionNextElemOnTimeout(t *testing.T) {
+func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)

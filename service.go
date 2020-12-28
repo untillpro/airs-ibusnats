@@ -132,7 +132,7 @@ func (s *Service) Stop(ctx context.Context) {
 	// unsubscribe
 	for _, s := range s.nATSSubscribers {
 		if err := s.subscription.Unsubscribe(); err != nil {
-			log.Println(fmt.Sprintf("unsubscribe %s failed: %v", s.subscription.Subject, err))
+			log.Printf("unsubscribe %s failed: %v\n", s.subscription.Subject, err)
 		}
 	}
 	// disconnect subscribers
