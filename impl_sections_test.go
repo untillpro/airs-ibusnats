@@ -378,7 +378,6 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 	require.Empty(t, name)
 
 	// further sections are sent by handler but lost on requester side
-
 	_, ok = <-sections
 	require.False(t, ok)
 	require.Nil(t, *secErr)
