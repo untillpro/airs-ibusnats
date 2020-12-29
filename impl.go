@@ -22,14 +22,18 @@ import (
 )
 
 func implSendRequest2(ctx context.Context,
-	request ibus.Request, timeout time.Duration) (res ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
+	request ibus.Request, timeout time.Duration) (resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
 	reqData, _ := json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
 	if _, ok := srv.Queues[request.QueueID]; !ok {
 		err = fmt.Errorf("unknown queue: %s", request.QueueID)
 		return
 	}
 	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
-	return sendToNATSAndGetResp(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
+	sub, replyTo, err := sendToNATS(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
+	if err != nil {
+		return resp, sections, secError, err
+	}
+	return handleNATSResponse(ctx, sub, qName, replyTo, timeout, srv.Verbose)
 }
 
 // panics if wrong sender provided
@@ -97,15 +101,50 @@ func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
 	return
 }
 
-func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []byte, partitionKey string, timeout time.Duration, verbose bool) (
-	resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
-	replyTo := nats.NewInbox()
-	sub, err := publisherConn.SubscribeSync(replyTo)
+func getNATSResponse(sub *nats.Subscription, timeout time.Duration) (msg *nats.Msg, err error) {
+	msg, err = sub.NextMsg(timeout)
+	if err != nil && errors.Is(nats.ErrTimeout, err) {
+		err = ibus.ErrTimeoutExpired
+	}
+	return
+}
+
+func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKey string, replyTo string,
+	timeout time.Duration, verbose bool) (resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
+	firstMsg, err := getNATSResponse(sub, timeout)
+	if err != nil {
+		err = fmt.Errorf("first response read failed: %w", err)
+		return
+	}
+
+	if verbose {
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(firstMsg.Data),
+			hex.Dump(firstMsg.Data))
+	}
+
+	// determine communication type by the first packet type
+	// if kind of section -> there will nothing but sections or error
+	// response -> there will be nothing more
+	if firstMsg.Data[0] == busPacketResponse {
+		resp = deserializeResponse(firstMsg.Data[1:])
+		err = sub.Unsubscribe()
+		return
+	}
+	secError = new(error)
+	sectionsW := make(chan ibus.ISection)
+	sections = sectionsW
+	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, firstMsg, verbose)
+	return
+}
+
+func sendToNATS(ctx context.Context, publisherConn *nats.Conn, data []byte, partitionKey string, timeout time.Duration, verbose bool) (sub *nats.Subscription,
+	replyTo string, err error) {
+	replyTo = nats.NewInbox()
+	sub, err = publisherConn.SubscribeSync(replyTo)
 	if err != nil {
 		err = fmt.Errorf("SubscribeSync failed: %w", err)
-		return resp, nil, nil, err
+		return
 	}
-	publisherConn.Flush()
 
 	// Send the request
 	if verbose {
@@ -113,36 +152,7 @@ func sendToNATSAndGetResp(ctx context.Context, publisherConn *nats.Conn, data []
 	}
 	if err = publisherConn.PublishRequest(partitionKey, replyTo, data); err != nil {
 		err = fmt.Errorf("PublishRequest failed: %w", err)
-		return
 	}
-
-	// wait for the first packet
-	msg, err := sub.NextMsg(timeout)
-	if err != nil {
-		toWrap := err
-		if errors.Is(nats.ErrTimeout, err) {
-			toWrap = ibus.ErrTimeoutExpired
-		}
-		err = fmt.Errorf("response read failed: %w", toWrap)
-		return
-	}
-
-	if verbose {
-		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(msg.Data), hex.Dump(msg.Data))
-	}
-
-	// determine communication type by the first packet type
-	// if kind of section -> there will nothing but sections or error
-	// response -> there will be nothing more
-	if msg.Data[0] == busPacketResponse {
-		resp = deserializeResponse(msg.Data[1:])
-		err = sub.Unsubscribe()
-		return
-	}
-	secError = new(error)
-	sectionsW := make(chan ibus.ISection)
-	sections = sectionsW
-	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, msg, verbose)
 	return
 }
 

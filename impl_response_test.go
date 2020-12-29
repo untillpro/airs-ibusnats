@@ -7,10 +7,12 @@ package ibusnats
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	ibus "github.com/untillpro/airs-ibus"
@@ -81,7 +83,7 @@ func TestEmpty(t *testing.T) {
 	require.Nil(t, resp.Data)
 }
 
-func TestRequestUnmarshalFailed(t *testing.T) {
+func TestNoReplyOnRequestUnmarshalFailure(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		t.Fatal()
 	})
@@ -98,10 +100,10 @@ func TestRequestUnmarshalFailed(t *testing.T) {
 		Body:            []byte{0}, // unmarshallable
 	}
 	qName := req.QueueID + strconv.Itoa(req.PartitionNumber)
-	resp, _, _, err := sendToNATSAndGetResp(ctx, srv.nATSPublisher, []byte("unmarshallable"), qName, ibus.DefaultTimeout, false)
+	sub, replyTo, err := sendToNATS(ctx, srv.nATSPublisher, []byte("unmarshallable"), qName, ibus.DefaultTimeout, srv.Verbose)
 	require.Nil(t, err)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	fmt.Println(string(resp.Data))
+	_, _, _, err = handleNATSResponse(ctx, sub, qName, replyTo, 1*time.Second, srv.Verbose)
+	require.True(t, errors.Is(err, ibus.ErrTimeoutExpired))
 }
 
 func TestMultipleResponse(t *testing.T) {

@@ -56,8 +56,8 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 		// ch is closed -> do not read anymore. Handler could continue sending to the NATS inbox, there will be nobody to read it
 		msgCh <- msgAndErr{firstMsg, nil}
 		for {
-			msg, err := sub.NextMsg(timeout) // 10 seconds maximum
-			msgCh <- msgAndErr{msg, err}     // ch closed -> finish goroutine
+			msg, err := getNATSResponse(sub, timeout) // 10 seconds maximum
+			msgCh <- msgAndErr{msg, err}              // ch closed -> finish goroutine
 		}
 	}()
 
@@ -78,11 +78,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			default:
 			}
 			if msgAndErr.err != nil {
-				toWrap := msgAndErr.err
-				if errors.Is(nats.ErrTimeout, msgAndErr.err) {
-					toWrap = ibus.ErrTimeoutExpired
-				}
-				*secErr = fmt.Errorf("response read failed: %w", toWrap)
+				*secErr = fmt.Errorf("response read failed: %w", msgAndErr.err)
 				return
 			}
 			msg := msgAndErr.msg

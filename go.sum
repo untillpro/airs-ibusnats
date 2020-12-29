@@ -29,6 +29,8 @@ github.com/stretchr/testify v1.5.1 h1:nOGnQDM7FYENwehXlg/kFVnos3rEvtKTjRvOWSzb6H
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
 github.com/untillpro/airs-ibus v0.0.0-20201224151955-323c03f2a6a0 h1:Su5SNJWu9emuOfdEeT2MemjZ9CHOn6ZmyLNNDNtuKR4=
 github.com/untillpro/airs-ibus v0.0.0-20201224151955-323c03f2a6a0/go.mod h1:bNsd68NiMd2sXC0n6yIynKC5HD+iR8LRMH/bFZg1CHk=
+github.com/untillpro/airs-ibus v0.0.0-20201228131349-e2152a2bf73e h1:Gh5sbX4yEIjz6hVSSXen71WA0IbSayE7cpq188jpzVg=
+github.com/untillpro/airs-ibus v0.0.0-20201228131349-e2152a2bf73e/go.mod h1:bNsd68NiMd2sXC0n6yIynKC5HD+iR8LRMH/bFZg1CHk=
 github.com/untillpro/gochips v1.12.1-0.20191205115612-9cd10d0ac2b3 h1:6FcNUgKOtK6UqrjFGlW80WfrwgLjZPBdpUadFkw3mRw=
 github.com/untillpro/gochips v1.12.1-0.20191205115612-9cd10d0ac2b3/go.mod h1:us8QSJtQx+8SiWFqh2oAT7UMzhF73t21p3WFGn6Apao=
 github.com/untillpro/godif v0.18.0 h1:m3/5jc8oJCyU5lYHeZwG0deq+lYoCXNFqAwVMhiQ+Ks=

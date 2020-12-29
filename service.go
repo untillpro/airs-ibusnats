@@ -6,6 +6,7 @@ package ibusnats
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,7 +49,9 @@ func (s *Service) Start(ctx context.Context) (newCtx context.Context, err error)
 	}
 	newCtx = context.WithValue(ctx, nATSKey, s)
 	for _, v := range s.nATSSubscribers {
-		natsHandler := generateNATSRequestHandler(newCtx)
+		natsHandler := func(msg *nats.Msg) {
+			nATSMsgHandler(newCtx, msg)
+		}
 		if err = v.subscribe(natsHandler); err != nil {
 			v.conn.Close()
 			return nil, err
@@ -100,24 +103,21 @@ func (s *Service) connectSubscribers() error {
 	return nil
 }
 
-func generateNATSRequestHandler(ctx context.Context) nats.MsgHandler {
-	return func(msg *nats.Msg) {
-		var req ibus.Request
-		sender := senderImpl{partNumber: req.PartitionNumber, replyTo: msg.Reply}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			ibus.SendResponse(ctx, sender,
-				ibus.CreateErrorResponse(http.StatusBadRequest, fmt.Errorf("request unmarshal failed: %w", err)))
-			return
-		}
-		defer func() {
-			if r := recover(); r != nil {
-				stack := debug.Stack()
-				ibus.SendResponse(ctx, sender, ibus.CreateErrorResponse(http.StatusInternalServerError,
-					fmt.Errorf("ibus.RequestHandler paniced: %v\n%s", r, string(stack))))
-			}
-		}()
-		ibus.RequestHandler(ctx, sender, req)
+func nATSMsgHandler(ctx context.Context, msg *nats.Msg) {
+	var req ibus.Request
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		log.Printf("failed to unmarshal request: %s:\n%s\n", err.Error(), hex.Dump(msg.Data))
+		return
 	}
+	sender := senderImpl{partNumber: req.PartitionNumber, replyTo: msg.Reply}
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			ibus.SendResponse(ctx, sender, ibus.CreateErrorResponse(http.StatusInternalServerError,
+				fmt.Errorf("ibus.RequestHandler paniced: %v\n%s", r, string(stack))))
+		}
+	}()
+	ibus.RequestHandler(ctx, sender, req)
 }
 
 func connectToNATS(servers string, subjName string) (conn *nats.Conn, err error) {
