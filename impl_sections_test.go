@@ -347,6 +347,7 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 		require.Nil(t, rs.SendElement("f1", "v3")) // will be lost
 
 		rs.Close(nil) // will be lost
+		ch <- struct{}{}
 	})
 
 	setUp()
@@ -381,6 +382,8 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 	_, ok = <-sections
 	require.False(t, ok)
 	require.Nil(t, *secErr)
+
+	<-ch
 }
 
 func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
@@ -394,6 +397,7 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 		require.Nil(t, rs.SendElement("", "arrEl3")) // will be send and lost
 
 		rs.Close(nil) // will be send and lost
+		ch <- struct{}{}
 	})
 
 	setUp()
@@ -426,6 +430,8 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 	_, ok = <-sections
 	require.False(t, ok)
 	require.Nil(t, *secErr)
+
+	<-ch
 }
 
 func TestMapElementRawBytes(t *testing.T) {
