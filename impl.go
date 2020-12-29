@@ -5,267 +5,155 @@
 package ibusnats
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
+	"log"
+	"runtime/debug"
 	"strconv"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	ibus "github.com/untillpro/airs-ibus"
-	"github.com/untillpro/gochips"
+	"github.com/valyala/bytebufferpool"
 )
 
-const (
-	firstByteInLastMsg = iota
-	firstByteInRegularMsg
-	firstByteInErrorMsg
-)
+func implSendRequest2(ctx context.Context,
+	request ibus.Request, timeout time.Duration) (resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
+	reqData, _ := json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
+	if _, ok := srv.Queues[request.QueueID]; !ok {
+		err = fmt.Errorf("unknown queue: %s", request.QueueID)
+		return
+	}
+	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
+	sub, replyTo, err := sendToNATS(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
+	if err != nil {
+		return resp, sections, secError, err
+	}
+	return handleNATSResponse(ctx, sub, qName, replyTo, timeout, srv.Verbose)
+}
 
-type nATSPublisher struct {
-	servers string
-	conn    *nats.Conn
+// panics if wrong sender provided
+func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response) {
+	sImpl := sender.(senderImpl)
+	srv.nATSSubscribers[sImpl.partNumber].sendSingleResponseToNATS(response, sImpl.replyTo)
+}
+
+// panics on wrong sender
+func implSendParallelResponse2(ctx context.Context, sender interface{}) (rsender ibus.IResultSenderClosable) {
+	sImpl := sender.(senderImpl)
+	return &implIResultSenderCloseable{
+		subjToReply: sImpl.replyTo,
+		nc:          srv.nATSSubscribers[sImpl.partNumber].conn,
+	}
+}
+
+// used in tests
+var onReconnect func() = nil
+
+type senderImpl struct {
+	partNumber int
+	replyTo    string
 }
 
 type nATSSubscriber struct {
-	queueID                string
-	currentPartitionNumber int
-	worker                 *nATSPublisher
-	subscription           *nats.Subscription
+	conn         *nats.Conn
+	subscription *nats.Subscription
 }
 
-func connectPublisher(servers string) (worker *nATSPublisher, err error) {
-	return connectToNATS(servers, "NATSPublisher")
-}
-
-func connectSubscribers(s *Service) (subscribers map[int]*nATSSubscriber, err error) {
-	if s.CurrentQueueName == "" {
-		return
-	}
-	subscribers = make(map[int]*nATSSubscriber, 0)
-	var numOfSubjects int
-	var ok bool
-	if numOfSubjects, ok = s.Queues[s.CurrentQueueName]; !ok {
-		panic("can't find number of subjects in queues map")
-	}
-	minPart := 0
-	maxPart := numOfSubjects
-	if s.Parts != 0 && s.CurrentPart != 0 {
-		if s.Parts > numOfSubjects {
-			if s.CurrentPart >= numOfSubjects {
-				minPart = 0
-				maxPart = 0
-			} else {
-				minPart = s.CurrentPart - 1
-				maxPart = s.CurrentPart
-			}
-		} else {
-			partitionsInOnePart := numOfSubjects / s.Parts
-			if s.Parts == s.CurrentPart {
-				maxPart = numOfSubjects
-			} else {
-				maxPart = s.CurrentPart * partitionsInOnePart
-			}
-			minPart = partitionsInOnePart * (s.CurrentPart - 1)
-		}
-	}
-	gochips.Info("Partition range:", minPart, "-", maxPart-1)
-	for i := minPart; i < maxPart; i++ {
-		worker, err := connectToNATS(s.NATSServers, s.CurrentQueueName+strconv.Itoa(i))
-		if err != nil {
-			return subscribers, err
-		}
-		subscribers[i] = &nATSSubscriber{s.CurrentQueueName, i, worker, nil}
-	}
-	return subscribers, nil
-}
-
-func unsubscribe(subscribers map[int]*nATSSubscriber) {
-	for _, s := range subscribers {
-		err := s.subscription.Unsubscribe()
-		if err != nil {
-			gochips.Error(err)
-		}
+func logStack(desc string, err error) {
+	stackTrace := string(debug.Stack())
+	if err == nil {
+		log.Printf("%s\n%s\n", desc, stackTrace)
+	} else {
+		log.Printf("%s: %s\n%s\n", desc, err.Error(), stackTrace)
 	}
 }
 
-func disconnectSubscribers(subscribers map[int]*nATSSubscriber) {
-	for _, s := range subscribers {
-		s.worker.conn.Close()
-	}
-}
-
-func connectToNATS(servers string, subjName string) (worker *nATSPublisher, err error) {
-	opts := setupConnOptions([]nats.Option{nats.Name(subjName)})
-	opts = setupConnOptions(opts)
-	natsConn, err := nats.Connect(servers, opts...)
-	if err != nil {
-		return nil, err
-	}
-	worker = &nATSPublisher{servers, natsConn}
-	return worker, nil
-}
-
-func getChunksFromNATS(ctx context.Context, chunks chan []byte, sub *nats.Subscription, perr *error, max time.Time,
-	timeout time.Duration) {
-	defer func() {
-		close(chunks)
-		sub.Unsubscribe()
-	}()
-	var EOM bool
-	for time.Now().Before(max) {
-		if EOM {
-			break
-		}
-		msg, err := sub.NextMsg(timeout)
-		if err != nil {
-			*perr = err
-			break
-		}
-
-		if msg.Data[0] == firstByteInErrorMsg || msg.Data[0] == firstByteInLastMsg {
-			EOM = true
-			if msg.Data[0] == firstByteInErrorMsg {
-				err := errors.New(string(msg.Data[1:]))
-				*perr = err
-				break
-			}
-		}
-		msg.Data = msg.Data[1:]
-		select {
-		case <-ctx.Done():
-			*perr = ctx.Err()
-		default:
-			chunks <- msg.Data
-		}
-	}
-}
-
-func (ns *nATSSubscriber) nATSReply(resp *ibus.Response, subjToReply string) {
-	nc := ns.worker.conn
-	data := serializeResponse(resp)
-	data = prependByte(data, firstByteInLastMsg)
-	err := nc.Publish(subjToReply, data)
-	if err != nil {
-		gochips.Error(err)
-	}
-}
-
-func (ns *nATSSubscriber) chunkedNATSReply(resp *ibus.Response, chunks <-chan []byte, perr *error, subjToReply string) {
-	nc := ns.worker.conn
-
-	data := serializeResponse(resp)
-	data = prependByte(data, firstByteInRegularMsg)
-
-	err := nc.Publish(subjToReply, data)
-	if err != nil {
-		gochips.Error(err)
-		*perr = err
-		return
-	}
-
-	for chunk := range chunks {
-		chunk = prependByte(chunk, firstByteInRegularMsg)
-		err = nc.Publish(subjToReply, chunk)
-		if err != nil {
-			gochips.Error(err)
-			*perr = err
-			return
-		}
-	}
-
-	if perr != nil && *perr != nil {
-		ns.publishError(*perr, subjToReply)
-	}
-
-	err = nc.Publish(subjToReply, []byte{firstByteInLastMsg})
-	if err != nil {
-		gochips.Error(err)
-		return
-	}
-}
-
-func (ns *nATSSubscriber) publishError(err error, subjToReply string) {
-	nc := ns.worker.conn
-	gochips.Error(err)
-	data := []byte(err.Error())
-	data = prependByte(data, firstByteInErrorMsg)
-	err = nc.Publish(subjToReply, data)
-	if err != nil {
-		gochips.Error(err)
+func (ns *nATSSubscriber) sendSingleResponseToNATS(resp ibus.Response, subjToReply string) {
+	b := bytebufferpool.Get()
+	defer bytebufferpool.Put(b)
+	b.WriteByte(busPacketResponse)
+	serializeResponse(b, resp)
+	if err := ns.conn.Publish(subjToReply, b.B); err != nil {
+		logStack("publish to NATS on NATSReply()", err)
 	}
 }
 
 func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
-	conn := ns.worker.conn
-	ns.subscription, err = conn.QueueSubscribe(conn.Opts.Name, conn.Opts.Name, handler)
-	err = conn.Flush()
+	conn := ns.conn
+	if ns.subscription, err = conn.QueueSubscribe(conn.Opts.Name, conn.Opts.Name, handler); err != nil {
+		err = fmt.Errorf("conn.QueueSubscribe failed: %w", err)
+		return
+	}
+	if err = conn.Flush(); err != nil {
+		err = fmt.Errorf("conn.Flush failed: %w", err)
+		return
+	}
 	if err = conn.LastError(); err != nil {
-		return err
+		err = fmt.Errorf("conn.LastError not nil: %w", err)
+		return
 	}
-	gochips.Info("Subscribe for subj", conn.Opts.Name)
-	return nil
+	log.Println("Subscribe for subj", conn.Opts.Name)
+	return
 }
 
-func (np *nATSPublisher) pubReqNATS(data []byte, partitionKey, replyTo string) error {
-	conn := np.conn
-	err := conn.PublishRequest(partitionKey, replyTo, data)
-	if err != nil {
-		if conn.LastError() != nil {
-			err = conn.LastError()
-		}
-		return err
+func getNATSResponse(sub *nats.Subscription, timeout time.Duration) (msg *nats.Msg, err error) {
+	msg, err = sub.NextMsg(timeout)
+	if err != nil && errors.Is(nats.ErrTimeout, err) {
+		err = ibus.ErrTimeoutExpired
 	}
-	return nil
+	return
 }
 
-func (np *nATSPublisher) chunkedRespNATS(ctx context.Context, data []byte, partitionKey string, timeout time.Duration) (
-	resp *ibus.Response, outChunks <-chan []byte, outChunksError *error, err error) {
-	conn := np.conn
-	replyTo := nats.NewInbox()
-	sub, err := conn.SubscribeSync(replyTo)
+func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKey string, replyTo string,
+	timeout time.Duration, verbose bool) (resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
+	firstMsg, err := getNATSResponse(sub, timeout)
 	if err != nil {
-		gochips.Error(err)
-		return nil, nil, nil, err
+		err = fmt.Errorf("first response read failed: %w", err)
+		return
 	}
-	conn.Flush()
+
+	if verbose {
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(firstMsg.Data),
+			hex.Dump(firstMsg.Data))
+	}
+
+	// determine communication type by the first packet type
+	// if kind of section -> there will nothing but sections or error
+	// response -> there will be nothing more
+	if firstMsg.Data[0] == busPacketResponse {
+		resp = deserializeResponse(firstMsg.Data[1:])
+		err = sub.Unsubscribe()
+		return
+	}
+	secError = new(error)
+	sectionsW := make(chan ibus.ISection)
+	sections = sectionsW
+	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, firstMsg, verbose)
+	return
+}
+
+func sendToNATS(ctx context.Context, publisherConn *nats.Conn, data []byte, partitionKey string, timeout time.Duration, verbose bool) (sub *nats.Subscription,
+	replyTo string, err error) {
+	replyTo = nats.NewInbox()
+	sub, err = publisherConn.SubscribeSync(replyTo)
+	if err != nil {
+		err = fmt.Errorf("SubscribeSync failed: %w", err)
+		return
+	}
 
 	// Send the request
-	err = conn.PublishRequest(partitionKey, replyTo, data)
-	if err != nil {
-		gochips.Error(err)
-		return nil, nil, nil, err
+	if verbose {
+		log.Printf("sending request to NATS: %s->%s\n%s", partitionKey, replyTo, hex.Dump(data))
 	}
-
-	chunks := make(chan []byte)
-	// Wait for a single response
-	max := time.Now().Add(timeout)
-	msg, err := sub.NextMsg(timeout)
-	if err != nil {
-		return nil, nil, nil, err
+	if err = publisherConn.PublishRequest(partitionKey, replyTo, data); err != nil {
+		err = fmt.Errorf("PublishRequest failed: %w", err)
 	}
-	if msg == nil || len(msg.Data) == 0 {
-		return nil, nil, nil, errors.New("empty message from NATS")
-	}
-	statusByteValue := msg.Data[0]
-	var r ibus.Response
-	err = deserializeResponse(msg.Data[1:], &r)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if statusByteValue == firstByteInLastMsg || statusByteValue == firstByteInErrorMsg {
-		return &r, nil, nil, nil
-	} else if statusByteValue == firstByteInRegularMsg {
-		outChunksError = &err
-		go getChunksFromNATS(ctx, chunks, sub, outChunksError, max, ibus.DefaultTimeout)
-		return &r, chunks, outChunksError, nil
-	} else {
-		return nil, nil, nil, fmt.Errorf("wrong msg from NATS, first byte is %d", statusByteValue)
-	}
+	return
 }
 
 func setupConnOptions(opts []nats.Option) []nats.Option {
@@ -275,131 +163,53 @@ func setupConnOptions(opts []nats.Option) []nats.Option {
 	opts = append(opts, nats.ReconnectWait(reconnectDelay))
 	opts = append(opts, nats.MaxReconnects(int(totalWait/reconnectDelay)))
 	opts = append(opts, nats.DisconnectHandler(func(nc *nats.Conn) {
-		gochips.Error(nc.Opts.Name + " disconnected")
+		log.Println(nc.Opts.Name, "disconnected")
 	}))
 	opts = append(opts, nats.ReconnectHandler(func(nc *nats.Conn) {
-		gochips.Error(nc.Opts.Name + " reconnected")
+		if onReconnect != nil {
+			// happens in tests
+			onReconnect()
+		}
+		log.Println(nc.Opts.Name, "reconnected")
 	}))
 	opts = append(opts, nats.ClosedHandler(func(nc *nats.Conn) {
-		gochips.Error(nc.Opts.Name + " closed")
+		log.Println(nc.Opts.Name, "closed")
 	}))
 	opts = append(opts, nats.ErrorHandler(func(nc *nats.Conn, s *nats.Subscription, err error) {
-		gochips.Error(nc.Opts.Name + " error: " + err.Error())
+		log.Println(nc.Opts.Name, "error:", err.Error())
 	}))
 
 	return opts
 }
 
-type senderImpl struct {
-	PartNumber int
-	ReplyTo    string
-}
-
-func (ns *nATSSubscriber) invokeNATSHandler(ctx context.Context,
-	handler func(ctx context.Context, sender interface{}, request ibus.Request)) nats.MsgHandler {
-	return func(msg *nats.Msg) {
-		var req ibus.Request
-		err := json.Unmarshal(msg.Data, &req)
-		if err != nil {
-			gochips.Error(err)
-			return
-		}
-		handler(ctx, senderImpl{PartNumber: req.PartitionNumber, ReplyTo: msg.Reply}, req)
+func serializeResponse(b *bytebufferpool.ByteBuffer, resp ibus.Response) {
+	b.WriteByte(byte(len(resp.ContentType)))
+	b.WriteString(resp.ContentType)
+	b.B = append(b.B, 0, 0)
+	binary.LittleEndian.PutUint16(b.B[len(b.B)-2:len(b.B)], uint16(resp.StatusCode))
+	if len(resp.Data) != 0 {
+		b.Write(resp.Data)
 	}
 }
 
-func implSendRequest(ctx context.Context,
-	request *ibus.Request, timeout time.Duration) (res *ibus.Response, chunks <-chan []byte, chunksError *error, err error) {
-	reqData, err := json.Marshal(request)
-	if err != nil {
-		gochips.Error(err)
-		return nil, nil, nil, err
+func deserializeResponse(data []byte) (resp ibus.Response) {
+	length := data[0]
+	pos := int(length + 1)
+	if length != 0 {
+		resp.ContentType = string(data[1:pos])
 	}
-	worker := getService(ctx)
-	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
-	return worker.nATSPublisher.chunkedRespNATS(ctx, reqData, qName, timeout)
-}
-
-func implSendParallelResponse(ctx context.Context, sender interface{}, chunks <-chan []byte, chunksError *error) {
-	resp := ibus.CreateResponse(http.StatusOK, "ok")
-	sendResponse(ctx, sender, resp, chunks, chunksError)
-}
-
-func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response) {
-	sendResponse(ctx, sender, response, nil, nil)
-}
-
-func sendResponse(ctx context.Context, sender interface{}, response ibus.Response, chunks <-chan []byte, chunksError *error) {
-	var sImpl senderImpl
-	var ok bool
-	if sImpl, ok = sender.(senderImpl); !ok {
-		gochips.Error("can't get part number and reply to from sender iface")
+	resp.StatusCode = int(binary.LittleEndian.Uint16(data[pos : pos+2]))
+	pos += 2
+	if len(data) == pos {
+		resp.Data = nil
 		return
 	}
-	worker := getService(ctx)
-	if chunks == nil {
-		worker.nATSSubscribers[sImpl.PartNumber].nATSReply(&response, sImpl.ReplyTo)
-	} else {
-		worker.nATSSubscribers[sImpl.PartNumber].chunkedNATSReply(&response, chunks, chunksError, sImpl.ReplyTo)
-	}
+	resp.Data = data[pos:]
+	return
 }
 
-// little endian
-func serializeResponse(resp *ibus.Response) []byte {
-	if resp == nil {
-		return nil
+func closeSection(sec *sectionData) {
+	if sec != nil && sec.elems != nil {
+		close(sec.elems)
 	}
-	var buf bytes.Buffer
-	buf.Write([]byte{byte(len([]byte(resp.ContentType)))})
-	buf.Write([]byte(resp.ContentType))
-	// separate uint16 on 2 bytes
-	stCodeBytes := make([]byte, 2)
-	binary.LittleEndian.PutUint16(stCodeBytes, uint16(resp.StatusCode))
-	buf.Write(stCodeBytes)
-	dl := uint32(len(resp.Data))
-	// separate uint32 on 4 bytes
-	if resp.Data == nil {
-		buf.Write([]byte{0})
-		return buf.Bytes()
-	}
-	dlBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(dlBytes, dl)
-	buf.Write(dlBytes)
-	buf.Write(resp.Data)
-	return buf.Bytes()
-}
-
-// little endian
-func deserializeResponse(data []byte, resp *ibus.Response) error {
-	if len(data) == 0 {
-		return errors.New("empty bytes")
-	}
-	if resp == nil {
-		return errors.New("nil response")
-	}
-	length := data[0]
-	if length != 0 {
-		ct := data[1 : length+1]
-		resp.ContentType = string(ct)
-	}
-	// status code last byte idx
-	length = length + 2
-	resp.StatusCode = int(binary.LittleEndian.Uint16(data[length-1 : length+1]))
-	// data len idx
-	length = length + 1
-	if data[length] == 0 && len(data)-1 == int(length) {
-		resp.Data = nil
-		return nil
-	}
-	dStartIdx := length + 4
-	dLenBuf := data[length:dStartIdx]
-	resp.Data = data[dStartIdx : int(dStartIdx)+int(binary.LittleEndian.Uint32(dLenBuf))]
-	return nil
-}
-
-func prependByte(chunk []byte, b byte) []byte {
-	chunk = append(chunk, 0)
-	copy(chunk[1:], chunk)
-	chunk[0] = b
-	return chunk
 }
