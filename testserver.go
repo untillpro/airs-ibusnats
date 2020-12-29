@@ -7,8 +7,8 @@ package ibusnats
 import (
 	"context"
 
-	"github.com/nats-io/gnatsd/server"
-	natsserver "github.com/nats-io/nats-server/test"
+	"github.com/nats-io/nats-server/v2/server"
+	natsserver "github.com/nats-io/nats-server/v2/test"
 )
 
 type testServerKeyType string
