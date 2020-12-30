@@ -32,6 +32,8 @@ func implSendRequest2(ctx context.Context,
 
 	// Create Inbox
 	replyTo := nats.NewInbox()
+
+	// Subscribe to Inbox "replyTo"
 	sub, err := srv.nATSPublisher.SubscribeSync(replyTo)
 	if err != nil {
 		err = fmt.Errorf("SubscribeSync failed: %w", err)
@@ -48,7 +50,11 @@ func implSendRequest2(ctx context.Context,
 	if err != nil {
 		return resp, sections, secError, err
 	}
-	return handleNATSResponse(ctx, sub, qName, replyTo, timeout, srv.Verbose)
+
+	// Handle response
+	{
+		return handleNATSResponse(ctx, sub, qName, replyTo, timeout, srv.Verbose)
+	}
 }
 
 // panics if wrong sender provided
@@ -141,6 +147,8 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	// if kind of section -> there will nothing but sections or error
 	// response -> there will be nothing more
 	if firstMsg.Data[0] == busPacketResponse {
+		// Single Response
+		// Deserialize Response
 		resp = deserializeResponse(firstMsg.Data[1:])
 		err = sub.Unsubscribe()
 		return
