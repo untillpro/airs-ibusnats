@@ -47,19 +47,27 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 		close(sections)
 	}()
 	msgCh := make(chan msgAndErr)
-	defer close(msgCh)
+	// defer close(msgCh) - wrong to close it here. Simultaneous write and close -> data race
+	// see https://github.com/untillpro/airs-ibusnats/pull/5/checks?check_run_id=1626501620
+	// will use additional chan to stop writer goroutine and close msgCh
+	waitChan := make(chan struct{})
+	defer close(waitChan)
 
 	// will read from NATS in separate goroutine to easier ctx.Done() check
-	// goroutine willbe terminated on msgCh close
+	// goroutine will be terminated on waitChan close
 	go func() {
-		defer func() {
-			recover() // suppress panic on write to the closed channel
-		}()
-		// ch is closed -> do not read anymore. Handler could continue sending to the NATS inbox, there will be nobody to read it
+		// waitChan is closed -> do not read anymore. Handler could continue sending to the NATS inbox, there will be nobody to read it
 		msgCh <- msgAndErr{firstMsg, nil}
 		for {
 			msg, err := getNATSResponse(sub, timeout) // 10 seconds maximum
-			msgCh <- msgAndErr{msg, err}              // ch closed -> finish goroutine
+			select {
+			case msgCh <- msgAndErr{msg, err}:
+			case _, ok := <-waitChan:
+				if !ok {
+					close(msgCh)
+					return
+				}
+			}
 		}
 	}()
 
