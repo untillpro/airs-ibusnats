@@ -7,12 +7,9 @@ package ibusnats
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	ibus "github.com/untillpro/airs-ibus"
