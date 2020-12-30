@@ -15,6 +15,7 @@ Close = 0x1 [ErrorMessage]
 ```
 
 # Limitations
+- Clients can have [Slow Consumers](https://docs.nats.io/nats-server/nats_admin/slow_consumers) problem
 - `ibus.IResultSenderClosable`:
   - `sectionType`, `path` elem and `elementName` max length is 255 chars
   - `[]path` max length is 255 elements

@@ -147,7 +147,7 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 			hex.Dump(firstMsg.Data))
 	}
 
-	// Determine communication type by the first packet type
+	// Check answer type
 	// if kind of section -> there will nothing but sections or error
 	// response -> there will be nothing more
 	if firstMsg.Data[0] == byte(busPacketResponse) {
