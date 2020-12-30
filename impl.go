@@ -29,7 +29,22 @@ func implSendRequest2(ctx context.Context,
 		return
 	}
 	qName := request.QueueID + strconv.Itoa(request.PartitionNumber)
-	sub, replyTo, err := sendToNATS(ctx, srv.nATSPublisher, reqData, qName, timeout, srv.Verbose)
+
+	// Create Inbox
+	replyTo := nats.NewInbox()
+	sub, err := srv.nATSPublisher.SubscribeSync(replyTo)
+	if err != nil {
+		err = fmt.Errorf("SubscribeSync failed: %w", err)
+		return
+	}
+
+	// Publish request
+	if srv.Verbose {
+		log.Printf("sending request to NATS: %s->%s\n%s", qName, replyTo, hex.Dump(reqData))
+	}
+	if err = srv.nATSPublisher.PublishRequest(qName, replyTo, reqData); err != nil {
+		err = fmt.Errorf("PublishRequest failed: %w", err)
+	}
 	if err != nil {
 		return resp, sections, secError, err
 	}
@@ -122,7 +137,7 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 			hex.Dump(firstMsg.Data))
 	}
 
-	// determine communication type by the first packet type
+	// Determine communication type by the first packet type
 	// if kind of section -> there will nothing but sections or error
 	// response -> there will be nothing more
 	if firstMsg.Data[0] == busPacketResponse {
@@ -133,6 +148,8 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	secError = new(error)
 	sectionsW := make(chan ibus.ISection)
 	sections = sectionsW
+
+	// Process Sectioned Response
 	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, firstMsg, verbose)
 	return
 }
