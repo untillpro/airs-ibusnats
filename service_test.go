@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	natsserver "github.com/nats-io/nats-server/test"
+	natsserver "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	ibus "github.com/untillpro/airs-ibus"

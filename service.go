@@ -6,7 +6,6 @@ package ibusnats
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,10 +104,7 @@ func (s *Service) connectSubscribers() error {
 
 func nATSMsgHandler(ctx context.Context, msg *nats.Msg) {
 	var req ibus.Request
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		log.Printf("failed to unmarshal request: %s:\n%s\n", err.Error(), hex.Dump(msg.Data))
-		return
-	}
+	json.Unmarshal(msg.Data, &req) // assuming error is impossible because request came to NATS through ibus.SendRequest2() only which properly marshals it to JSON
 	sender := senderImpl{partNumber: req.PartitionNumber, replyTo: msg.Reply}
 	defer func() {
 		if r := recover(); r != nil {

@@ -7,12 +7,9 @@ package ibusnats
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	ibus "github.com/untillpro/airs-ibus"
@@ -81,29 +78,6 @@ func TestEmpty(t *testing.T) {
 	require.Equal(t, "", resp.ContentType)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Nil(t, resp.Data)
-}
-
-func TestNoReplyOnRequestUnmarshalFailure(t *testing.T) {
-	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
-		t.Fatal()
-	})
-
-	setUp()
-	defer tearDown()
-
-	req := ibus.Request{
-		Method:          ibus.HTTPMethodPOST,
-		QueueID:         "airs-bp",
-		WSID:            1,
-		PartitionNumber: 0,
-		Resource:        "none",
-		Body:            []byte{0}, // unmarshallable
-	}
-	qName := req.QueueID + strconv.Itoa(req.PartitionNumber)
-	sub, replyTo, err := sendToNATS(ctx, srv.nATSPublisher, []byte("unmarshallable"), qName, ibus.DefaultTimeout, srv.Verbose)
-	require.Nil(t, err)
-	_, _, _, err = handleNATSResponse(ctx, sub, qName, replyTo, 1*time.Second, srv.Verbose)
-	require.True(t, errors.Is(err, ibus.ErrTimeoutExpired))
 }
 
 func TestMultipleResponse(t *testing.T) {
