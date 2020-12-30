@@ -2,6 +2,10 @@
  * Copyright (c) 2020-present unTill Pro, Ltd.
  */
 
+ //go:generate go get golang.org/x/tools/cmd/stringer
+ //go:generate stringer -type=busPacketType
+ // run: `go generate`
+
 package ibusnats
 
 import (
@@ -76,7 +80,7 @@ func logStack(desc string, err error) {
 func (ns *nATSSubscriber) sendSingleResponseToNATS(resp ibus.Response, subjToReply string) {
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
-	b.WriteByte(busPacketResponse)
+	b.WriteByte(byte(busPacketResponse))
 	serializeResponse(b, resp)
 	if err := ns.conn.Publish(subjToReply, b.B); err != nil {
 		logStack("publish to NATS on NATSReply()", err)
@@ -118,14 +122,14 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	}
 
 	if verbose {
-		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(firstMsg.Data),
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketType(firstMsg.Data[0]).String(),
 			hex.Dump(firstMsg.Data))
 	}
 
 	// determine communication type by the first packet type
 	// if kind of section -> there will nothing but sections or error
 	// response -> there will be nothing more
-	if firstMsg.Data[0] == busPacketResponse {
+	if firstMsg.Data[0] == byte(busPacketResponse) {
 		resp = deserializeResponse(firstMsg.Data[1:])
 		err = sub.Unsubscribe()
 		return

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	ibus "github.com/untillpro/airs-ibus"
+	"github.com/untillpro/airs-ibus"
 	"github.com/untillpro/godif"
 	"github.com/untillpro/godif/services"
 )

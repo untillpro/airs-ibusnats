@@ -18,8 +18,10 @@ import (
 	"github.com/valyala/bytebufferpool"
 )
 
+type busPacketType byte
+
 const (
-	busPacketResponse byte = iota
+	busPacketResponse busPacketType = iota
 	busPacketClose
 	busPacketSectionMap
 	busPacketSectionArray
@@ -83,11 +85,11 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			}
 			msg := msgAndErr.msg
 			if verbose {
-				log.Printf("%s packet received %s:\n%s", sub.Subject, busPacketTypeToString(msg.Data), hex.Dump(msg.Data))
+				log.Printf("%s packet received %s:\n%s", sub.Subject, busPacketType(msg.Data[0]), hex.Dump(msg.Data))
 			}
 
 			// msg.Data to ISection
-			switch msg.Data[0] {
+			switch busPacketType(msg.Data[0]) {
 			case busPacketClose:
 				if len(msg.Data) > 1 {
 					*secErr = errors.New(string(msg.Data[1:]))
@@ -115,7 +117,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 				sectionType := string(msg.Data[pos : pos+sectionTypeLen])
 				elemName := ""
 				pos += sectionTypeLen
-				if msg.Data[0] == busPacketSectionMap {
+				if msg.Data[0] == byte(busPacketSectionMap) {
 					elemNameLen := int(msg.Data[pos])
 					pos++
 					elemName = string(msg.Data[pos : pos+elemNameLen])
@@ -130,26 +132,26 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 					path:        path,
 					elems:       make(chan element),
 				}
-				switch msg.Data[0] {
+				switch busPacketType(msg.Data[0]) {
 				case busPacketSectionArray:
 					currentSection.sectionKind = ibus.SectionKindArray
 					sectionArray := &sectionDataArray{sectionData: currentSection}
 					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionKindToString(sectionArray.sectionKind), sectionArray.sectionType, sectionArray.path)
+						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionArray.sectionKind.String(), sectionArray.sectionType, sectionArray.path)
 					}
 					sections <- sectionArray
 				case busPacketSectionMap:
 					currentSection.sectionKind = ibus.SectionKindMap
 					sectionMap := &sectionDataMap{sectionData: currentSection}
 					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionKindToString(sectionMap.sectionKind), sectionMap.sectionType, sectionMap.path)
+						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionMap.sectionKind.String(), sectionMap.sectionType, sectionMap.path)
 					}
 					sections <- sectionMap
 				case busPacketSectionObject:
 					currentSection.sectionKind = ibus.SectionKindObject
 					sectionObject := &sectionDataObject{sectionData: currentSection}
 					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionKindToString(sectionObject.sectionKind), sectionObject.sectionType, sectionObject.path)
+						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionObject.sectionKind.String(), sectionObject.sectionType, sectionObject.path)
 					}
 					sections <- sectionObject
 				}
@@ -185,7 +187,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
 	if !rs.sectionStartSent {
-		b.WriteByte(rs.currentSection)
+		b.WriteByte(byte(rs.currentSection))
 		b.WriteByte(byte(len(rs.currentSectionPath)))
 		for _, p := range rs.currentSectionPath {
 			b.WriteByte(byte(len(p)))
@@ -196,7 +198,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 
 		rs.sectionStartSent = true
 	} else {
-		b.WriteByte(busPacketSectionElement)
+		b.WriteByte(byte(busPacketSectionElement))
 	}
 	if rs.currentSection == busPacketSectionMap {
 		b.WriteByte(byte(len(name)))
@@ -230,7 +232,7 @@ type sectionDataObject struct {
 type implIResultSenderCloseable struct {
 	subjToReply        string
 	nc                 *nats.Conn
-	currentSection     byte
+	currentSection     busPacketType
 	currentSectionType string
 	currentSectionPath []string
 	sectionStartSent   bool
@@ -271,7 +273,7 @@ func (s *sectionDataObject) Value() []byte {
 func (rs *implIResultSenderCloseable) Close(err error) {
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
-	b.WriteByte(busPacketClose)
+	b.WriteByte(byte(busPacketClose))
 	if err != nil {
 		b.WriteString(err.Error())
 	}
@@ -304,36 +306,4 @@ func (rs *implIResultSenderCloseable) ObjectSection(sectionType string, path []s
 	rs.currentSectionPath = path
 	rs.sectionStartSent = false
 	return rs.SendElement("", element)
-}
-
-func busPacketTypeToString(data []byte) string {
-	switch data[0] {
-	case busPacketResponse:
-		return "RESP"
-	case busPacketClose:
-		return "CLOSE"
-	case busPacketSectionArray:
-		return "SEC_ARR"
-	case busPacketSectionMap:
-		return "SEC_MAP"
-	case busPacketSectionElement:
-		return "SEC_ELEM"
-	case busPacketSectionObject:
-		return "SEC_OBJ"
-	default:
-		return "<unknown>"
-	}
-}
-
-func sectionKindToString(kind ibus.SectionKind) string {
-	switch kind {
-	case ibus.SectionKindArray:
-		return "secArr"
-	case ibus.SectionKindMap:
-		return "secMap"
-	case ibus.SectionKindObject:
-		return "secObj"
-	default:
-		return "<unknown>"
-	}
 }
