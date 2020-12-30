@@ -157,11 +157,11 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 		err = sub.Unsubscribe()
 		return
 	}
+
+	// Process Sectioned Response
 	secError = new(error)
 	sectionsW := make(chan ibus.ISection)
 	sections = sectionsW
-
-	// Process Sectioned Response
 	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, firstMsg, verbose)
 	return
 }

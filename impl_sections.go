@@ -107,11 +107,9 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 				// sectionMark_1 | len(path)_1 | []( 1x len(path) | path ) |  1xlen(sectionType) | sectionType | 1x len(elemName) | elem name | elemBytes
 				pos := 1
 				lenPath := msg.Data[pos]
-				var path []string
+				var path []string = nil
 				pos++
-				if lenPath == 0 {
-					path = nil
-				} else {
+				if lenPath > 0 {
 					path = make([]string, lenPath, lenPath)
 					for i := 0; i < int(lenPath); i++ {
 						lenP := int(msg.Data[pos])
@@ -186,6 +184,9 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		// will not send nothingness
 		return nil
 	}
+	if !rs.sectionStarted {
+		return errors.New("section is not started")
+	}
 	bytesElem, ok := element.([]byte)
 	if !ok {
 		if bytesElem, err = json.Marshal(element); err != nil {
@@ -244,6 +245,7 @@ type implIResultSenderCloseable struct {
 	currentSectionType string
 	currentSectionPath []string
 	sectionStartSent   bool
+	sectionStarted     bool
 }
 
 type element struct {
@@ -295,6 +297,7 @@ func (rs *implIResultSenderCloseable) StartArraySection(sectionType string, path
 	rs.currentSectionType = sectionType
 	rs.currentSectionPath = path
 	rs.sectionStartSent = false
+	rs.sectionStarted = true
 }
 
 func (rs *implIResultSenderCloseable) StartMapSection(sectionType string, path []string) {
@@ -302,6 +305,7 @@ func (rs *implIResultSenderCloseable) StartMapSection(sectionType string, path [
 	rs.currentSectionType = sectionType
 	rs.currentSectionPath = path
 	rs.sectionStartSent = false
+	rs.sectionStarted = true
 }
 
 func (rs *implIResultSenderCloseable) ObjectSection(sectionType string, path []string, element interface{}) (err error) {
@@ -313,5 +317,8 @@ func (rs *implIResultSenderCloseable) ObjectSection(sectionType string, path []s
 	rs.currentSectionType = sectionType
 	rs.currentSectionPath = path
 	rs.sectionStartSent = false
-	return rs.SendElement("", element)
+	rs.sectionStarted = true
+	err = rs.SendElement("", element)
+	rs.sectionStarted = false
+	return err
 }
