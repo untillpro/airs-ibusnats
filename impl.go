@@ -2,9 +2,9 @@
  * Copyright (c) 2020-present unTill Pro, Ltd.
  */
 
- //go:generate go get golang.org/x/tools/cmd/stringer
- //go:generate stringer -type=busPacketType
- // run: `go generate`
+//go:generate go get golang.org/x/tools/cmd/stringer
+//go:generate stringer -type=busPacketType
+// run: `go generate`
 
 package ibusnats
 
@@ -128,7 +128,7 @@ func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
 
 func getNATSResponse(sub *nats.Subscription, timeout time.Duration) (msg *nats.Msg, err error) {
 	msg, err = sub.NextMsg(timeout)
-	if err != nil && errors.Is(nats.ErrTimeout, err) {
+	if errors.Is(nats.ErrTimeout, err) {
 		err = ibus.ErrTimeoutExpired
 	}
 	return
@@ -163,25 +163,6 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 
 	// Process Sectioned Response
 	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, firstMsg, verbose)
-	return
-}
-
-func sendToNATS(ctx context.Context, publisherConn *nats.Conn, data []byte, partitionKey string, timeout time.Duration, verbose bool) (sub *nats.Subscription,
-	replyTo string, err error) {
-	replyTo = nats.NewInbox()
-	sub, err = publisherConn.SubscribeSync(replyTo)
-	if err != nil {
-		err = fmt.Errorf("SubscribeSync failed: %w", err)
-		return
-	}
-
-	// Send the request
-	if verbose {
-		log.Printf("sending request to NATS: %s->%s\n%s", partitionKey, replyTo, hex.Dump(data))
-	}
-	if err = publisherConn.PublishRequest(partitionKey, replyTo, data); err != nil {
-		err = fmt.Errorf("PublishRequest failed: %w", err)
-	}
 	return
 }
 
