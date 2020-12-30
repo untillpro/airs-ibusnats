@@ -234,7 +234,8 @@ func TestPartsAssigning(t *testing.T) {
 	}
 }
 
-func TestLogStackCover(t *testing.T) {
+func TestCover(t *testing.T) {
 	logStack("test", nil)
 	logStack("test", ibus.ErrTimeoutExpired)
+	_ = busPacketType(len(_busPacketType_index)).String()
 }
