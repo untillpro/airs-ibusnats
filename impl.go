@@ -50,9 +50,7 @@ func implSendRequest2(ctx context.Context,
 	}
 	if err = srv.nATSPublisher.PublishRequest(qName, replyTo, reqData); err != nil {
 		err = fmt.Errorf("PublishRequest failed: %w", err)
-	}
-	if err != nil {
-		return resp, sections, secError, err
+		return
 	}
 
 	// Handle response
