@@ -76,7 +76,9 @@ func BenchmarkSectionedRequestResponse(b *testing.B) {
 			secMap.Next()
 
 			_, ok := <-sections
-			require.False(b, ok)
+			if !ok {
+				b.Fatal()
+			}
 		}
 		elapsed := time.Since(start).Seconds()
 		b.ReportMetric(float64(b.N)/elapsed, "rps")
