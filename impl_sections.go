@@ -143,21 +143,21 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 					currentSection.sectionKind = ibus.SectionKindArray
 					sectionArray := &sectionDataArray{sectionData: currentSection}
 					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionArray.sectionKind.String(), sectionArray.sectionType, sectionArray.path)
+						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionArray.sectionKind, sectionArray.sectionType, sectionArray.path)
 					}
 					sections <- sectionArray
 				case busPacketSectionMap:
 					currentSection.sectionKind = ibus.SectionKindMap
 					sectionMap := &sectionDataMap{sectionData: currentSection}
 					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionMap.sectionKind.String(), sectionMap.sectionType, sectionMap.path)
+						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionMap.sectionKind, sectionMap.sectionType, sectionMap.path)
 					}
 					sections <- sectionMap
 				case busPacketSectionObject:
 					currentSection.sectionKind = ibus.SectionKindObject
 					sectionObject := &sectionDataObject{sectionData: currentSection}
 					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionObject.sectionKind.String(), sectionObject.sectionType, sectionObject.path)
+						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionObject.sectionKind, sectionObject.sectionType, sectionObject.path)
 					}
 					sections <- sectionObject
 				}

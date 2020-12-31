@@ -143,7 +143,7 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	}
 
 	if verbose {
-		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketType(firstMsg.Data[0]).String(),
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketType(firstMsg.Data[0]),
 			hex.Dump(firstMsg.Data))
 	}
 
