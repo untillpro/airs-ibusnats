@@ -235,8 +235,7 @@ func TestPartsAssigning(t *testing.T) {
 }
 
 func TestCover(t *testing.T) {
-	busPacketTypeToString([]byte{255})
-	sectionKindToString(ibus.SectionKindUnspecified)
 	logStack("test", nil)
 	logStack("test", ibus.ErrTimeoutExpired)
+	_ = busPacketType(len(_busPacketType_index)).String()
 }

@@ -2,6 +2,10 @@
  * Copyright (c) 2020-present unTill Pro, Ltd.
  */
 
+//go:generate go get golang.org/x/tools/cmd/stringer
+//go:generate stringer -type=busPacketType
+// run: `go generate`
+
 package ibusnats
 
 import (
@@ -97,7 +101,7 @@ func logStack(desc string, err error) {
 func (ns *nATSSubscriber) sendSingleResponseToNATS(resp ibus.Response, subjToReply string) {
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
-	b.WriteByte(busPacketResponse)
+	b.WriteByte(byte(busPacketResponse))
 	serializeResponse(b, resp)
 	if err := ns.conn.Publish(subjToReply, b.B); err != nil {
 		logStack("publish to NATS on NATSReply()", err)
@@ -124,7 +128,7 @@ func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
 
 func getNATSResponse(sub *nats.Subscription, timeout time.Duration) (msg *nats.Msg, err error) {
 	msg, err = sub.NextMsg(timeout)
-	if err != nil && errors.Is(nats.ErrTimeout, err) {
+	if errors.Is(nats.ErrTimeout, err) {
 		err = ibus.ErrTimeoutExpired
 	}
 	return
@@ -139,45 +143,26 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	}
 
 	if verbose {
-		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketTypeToString(firstMsg.Data),
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketType(firstMsg.Data[0]),
 			hex.Dump(firstMsg.Data))
 	}
 
 	// Check answer type
 	// if kind of section -> there will nothing but sections or error
 	// response -> there will be nothing more
-	if firstMsg.Data[0] == busPacketResponse {
+	if firstMsg.Data[0] == byte(busPacketResponse) {
 		// Single Response
 		// Deserialize Response
 		resp = deserializeResponse(firstMsg.Data[1:])
 		err = sub.Unsubscribe()
 		return
 	}
+
+	// Process Sectioned Response
 	secError = new(error)
 	sectionsW := make(chan ibus.ISection)
 	sections = sectionsW
-
-	// Process Sectioned Response
 	go getSectionsFromNATS(ctx, sectionsW, sub, secError, timeout, firstMsg, verbose)
-	return
-}
-
-func sendToNATS(ctx context.Context, publisherConn *nats.Conn, data []byte, partitionKey string, timeout time.Duration, verbose bool) (sub *nats.Subscription,
-	replyTo string, err error) {
-	replyTo = nats.NewInbox()
-	sub, err = publisherConn.SubscribeSync(replyTo)
-	if err != nil {
-		err = fmt.Errorf("SubscribeSync failed: %w", err)
-		return
-	}
-
-	// Send the request
-	if verbose {
-		log.Printf("sending request to NATS: %s->%s\n%s", partitionKey, replyTo, hex.Dump(data))
-	}
-	if err = publisherConn.PublishRequest(partitionKey, replyTo, data); err != nil {
-		err = fmt.Errorf("PublishRequest failed: %w", err)
-	}
 	return
 }
 

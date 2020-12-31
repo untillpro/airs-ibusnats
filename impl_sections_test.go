@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	ibus "github.com/untillpro/airs-ibus"
+	"github.com/untillpro/airs-ibus"
 	"github.com/untillpro/godif"
 	"github.com/untillpro/godif/services"
 )
@@ -489,6 +489,31 @@ func TestMapElementRawBytes(t *testing.T) {
 	_, ok = <-sections
 	require.False(t, ok)
 	require.Nil(t, *secErr)
+}
+
+func TestSendElementNoSection(t *testing.T) {
+	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
+		rs := ibus.SendParallelResponse2(ctx, sender)
+		require.NotNil(t, rs.SendElement("", 42))
+		rs.Close(nil)
+	})
+	setUp()
+	defer tearDown()
+
+	req := ibus.Request{
+		Method:          ibus.HTTPMethodPOST,
+		QueueID:         "airs-bp",
+		WSID:            1,
+		PartitionNumber: 0,
+		Resource:        "none",
+	}
+	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
+	require.Nil(t, err, err)
+	require.NotNil(t, sections)
+	require.NotNil(t, secErr)
+
+	_, ok := <-sections
+	require.False(t, ok)
 }
 
 func setUp() {

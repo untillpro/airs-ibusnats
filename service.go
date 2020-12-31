@@ -22,8 +22,7 @@ var srv *Service
 
 // Service s.e.
 type Service struct {
-	// Comma separated list of servers
-	NATSServers      string
+	NATSServers      string // Comma-separated list of servers
 	Queues           map[string]int
 	CurrentQueueName string
 	Parts            int
