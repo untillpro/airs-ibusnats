@@ -50,9 +50,7 @@ func implSendRequest2(ctx context.Context,
 	}
 	if err = srv.nATSPublisher.PublishRequest(qName, replyTo, reqData); err != nil {
 		err = fmt.Errorf("PublishRequest failed: %w", err)
-	}
-	if err != nil {
-		return resp, sections, secError, err
+		return
 	}
 
 	// Handle response
@@ -143,7 +141,7 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	}
 
 	if verbose {
-		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketType(firstMsg.Data[0]).String(),
+		log.Printf("%s %s first packet received %s:\n%s", partitionKey, replyTo, busPacketType(firstMsg.Data[0]),
 			hex.Dump(firstMsg.Data))
 	}
 

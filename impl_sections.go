@@ -29,11 +29,6 @@ const (
 	busPacketSectionElement
 )
 
-type msgAndErr struct {
-	msg *nats.Msg
-	err error
-}
-
 func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub *nats.Subscription, secErr *error,
 	timeout time.Duration, firstMsg *nats.Msg, verbose bool) {
 	var currentSection *sectionData
@@ -46,134 +41,105 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 		closeSection(currentSection)
 		close(sections)
 	}()
-	msgCh := make(chan msgAndErr)
-	// defer close(msgCh) - wrong to close it here. Simultaneous write and close -> data race
-	// see https://github.com/untillpro/airs-ibusnats/pull/5/checks?check_run_id=1626501620
-	// will use additional chan to stop writer goroutine and close msgCh
-	waitChan := make(chan struct{})
-	defer close(waitChan)
-
-	// will read from NATS in separate goroutine to easier ctx.Done() check
-	// goroutine will be terminated on waitChan close
-	go func() {
-		// waitChan is closed -> do not read anymore. Handler could continue sending to the NATS inbox, there will be nobody to read it
-		msgCh <- msgAndErr{firstMsg, nil}
-		for {
-			msg, err := getNATSResponse(sub, timeout) // 10 seconds maximum
-			select {
-			case msgCh <- msgAndErr{msg, err}:
-			case _, ok := <-waitChan:
-				if !ok {
-					close(msgCh)
-					return
-				}
-			}
-		}
-	}()
 
 	// terminate on ctx.Done() or `Close` packet receive or on any error
+	var msg *nats.Msg
 	for {
-		// select from 2 channels when both channels has data to read -> case fired in normal pseudo-random order
-		// https://stackoverflow.com/questions/46200343/force-priority-of-go-select-statement/51296312
-		// but we need to make case with ctx.Done() be fired first
+		if firstMsg != nil {
+			msg = firstMsg
+			firstMsg = nil
+		} else if msg, *secErr = getNATSResponse(sub, timeout); *secErr != nil {
+			*secErr = fmt.Errorf("response read failed: %w", *secErr)
+			return
+		}
 		select {
 		case <-ctx.Done():
 			log.Println("received one and further packets will be skipped because the context is closed")
 			return
-		case msgAndErr := <-msgCh:
-			select {
-			case <-ctx.Done():
-				log.Println("received one and further packets will be skipped because the context is closed")
-				return
-			default:
-			}
-			if msgAndErr.err != nil {
-				*secErr = fmt.Errorf("response read failed: %w", msgAndErr.err)
-				return
-			}
-			msg := msgAndErr.msg
-			if verbose {
-				log.Printf("%s packet received %s:\n%s", sub.Subject, busPacketType(msg.Data[0]), hex.Dump(msg.Data))
-			}
+		default:
+		}
 
-			// msg.Data to ISection
+		if verbose {
+			log.Printf("%s packet received %s:\n%s", sub.Subject, busPacketType(msg.Data[0]), hex.Dump(msg.Data))
+		}
+
+		// msg.Data to ISection
+		switch busPacketType(msg.Data[0]) {
+		case busPacketClose:
+			if len(msg.Data) > 1 {
+				*secErr = errors.New(string(msg.Data[1:]))
+			}
+			return
+		case busPacketSectionMap, busPacketSectionArray, busPacketSectionObject:
+			// sectionMark_1 | len(path)_1 | []( 1x len(path) | path ) |  1xlen(sectionType) | sectionType | 1x len(elemName) | elem name | elemBytes
+			pos := 1
+			lenPath := msg.Data[pos]
+			var path []string = nil
+			pos++
+			if lenPath > 0 {
+				path = make([]string, lenPath, lenPath)
+				for i := 0; i < int(lenPath); i++ {
+					lenP := int(msg.Data[pos])
+					pos++
+					path[i] = string(msg.Data[pos : pos+lenP])
+					pos += lenP
+				}
+			}
+			sectionTypeLen := int(msg.Data[pos])
+			pos++
+			sectionType := string(msg.Data[pos : pos+sectionTypeLen])
+			elemName := ""
+			pos += sectionTypeLen
+			if msg.Data[0] == byte(busPacketSectionMap) {
+				elemNameLen := int(msg.Data[pos])
+				pos++
+				elemName = string(msg.Data[pos : pos+elemNameLen])
+				pos += elemNameLen
+			}
+			elemBytes := msg.Data[pos:]
+
+			closeSection(currentSection)
+			currentSection = &sectionData{
+				ctx:         ctx,
+				sectionType: sectionType,
+				path:        path,
+				elems:       make(chan element),
+			}
 			switch busPacketType(msg.Data[0]) {
-			case busPacketClose:
-				if len(msg.Data) > 1 {
-					*secErr = errors.New(string(msg.Data[1:]))
+			case busPacketSectionArray:
+				currentSection.sectionKind = ibus.SectionKindArray
+				sectionArray := &sectionDataArray{sectionData: currentSection}
+				if verbose {
+					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionArray.sectionKind, sectionArray.sectionType, sectionArray.path)
 				}
-				return
-			case busPacketSectionMap, busPacketSectionArray, busPacketSectionObject:
-				// sectionMark_1 | len(path)_1 | []( 1x len(path) | path ) |  1xlen(sectionType) | sectionType | 1x len(elemName) | elem name | elemBytes
-				pos := 1
-				lenPath := msg.Data[pos]
-				var path []string = nil
-				pos++
-				if lenPath > 0 {
-					path = make([]string, lenPath, lenPath)
-					for i := 0; i < int(lenPath); i++ {
-						lenP := int(msg.Data[pos])
-						pos++
-						path[i] = string(msg.Data[pos : pos+lenP])
-						pos += lenP
-					}
+				sections <- sectionArray
+			case busPacketSectionMap:
+				currentSection.sectionKind = ibus.SectionKindMap
+				sectionMap := &sectionDataMap{sectionData: currentSection}
+				if verbose {
+					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionMap.sectionKind, sectionMap.sectionType, sectionMap.path)
 				}
-				sectionTypeLen := int(msg.Data[pos])
-				pos++
-				sectionType := string(msg.Data[pos : pos+sectionTypeLen])
-				elemName := ""
-				pos += sectionTypeLen
-				if msg.Data[0] == byte(busPacketSectionMap) {
-					elemNameLen := int(msg.Data[pos])
-					pos++
-					elemName = string(msg.Data[pos : pos+elemNameLen])
-					pos += elemNameLen
+				sections <- sectionMap
+			case busPacketSectionObject:
+				currentSection.sectionKind = ibus.SectionKindObject
+				sectionObject := &sectionDataObject{sectionData: currentSection}
+				if verbose {
+					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionObject.sectionKind, sectionObject.sectionType, sectionObject.path)
 				}
-				elemBytes := msg.Data[pos:]
-
-				closeSection(currentSection)
-				currentSection = &sectionData{
-					ctx:         ctx,
-					sectionType: sectionType,
-					path:        path,
-					elems:       make(chan element),
-				}
-				switch busPacketType(msg.Data[0]) {
-				case busPacketSectionArray:
-					currentSection.sectionKind = ibus.SectionKindArray
-					sectionArray := &sectionDataArray{sectionData: currentSection}
-					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionArray.sectionKind.String(), sectionArray.sectionType, sectionArray.path)
-					}
-					sections <- sectionArray
-				case busPacketSectionMap:
-					currentSection.sectionKind = ibus.SectionKindMap
-					sectionMap := &sectionDataMap{sectionData: currentSection}
-					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionMap.sectionKind.String(), sectionMap.sectionType, sectionMap.path)
-					}
-					sections <- sectionMap
-				case busPacketSectionObject:
-					currentSection.sectionKind = ibus.SectionKindObject
-					sectionObject := &sectionDataObject{sectionData: currentSection}
-					if verbose {
-						log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionObject.sectionKind.String(), sectionObject.sectionType, sectionObject.path)
-					}
-					sections <- sectionObject
-				}
-				currentSection.elems <- element{elemName, elemBytes}
-			case busPacketSectionElement:
-				elemName := ""
-				pos := 1
-				if currentSection.sectionKind == ibus.SectionKindMap {
-					elemNameLen := int(msg.Data[pos])
-					pos++
-					elemName = string(msg.Data[pos : pos+elemNameLen])
-					pos += elemNameLen
-				}
-				elemBytes := msg.Data[pos:]
-				currentSection.elems <- element{elemName, elemBytes}
+				sections <- sectionObject
 			}
+			currentSection.elems <- element{elemName, elemBytes}
+		case busPacketSectionElement:
+			elemName := ""
+			pos := 1
+			if currentSection.sectionKind == ibus.SectionKindMap {
+				elemNameLen := int(msg.Data[pos])
+				pos++
+				elemName = string(msg.Data[pos : pos+elemNameLen])
+				pos += elemNameLen
+			}
+			elemBytes := msg.Data[pos:]
+			currentSection.elems <- element{elemName, elemBytes}
 		}
 	}
 }
