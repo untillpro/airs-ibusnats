@@ -88,7 +88,7 @@
     <element xsi:type="archimate:TriggeringRelationship" id="96765d1f-f9c7-42bd-9afd-7e6de5d4952a" source="b6630a76-eee9-45f8-a069-bf7d2de47be9" target="ab6a9809-2363-4d14-95e1-7086cfbb93e9"/>
     <element xsi:type="archimate:ServingRelationship" id="id-03796177309143718e916aaf45d9d6c4" source="43cfab0f-9c6e-4c1e-9285-1046a347af00" target="id-5f348fa1333e4813a55d8cff783e6ec9"/>
     <element xsi:type="archimate:AssignmentRelationship" id="id-a6363ef8762c4442b0e96bf20b635b8f" source="id-5f348fa1333e4813a55d8cff783e6ec9" target="id-8f4b9195ddc34966aeff914a5125b39b"/>
-    <element xsi:type="archimate:FlowRelationship" name="Go On | No Consumer" id="id-4879b045b4574ff38107296788afeeb0" source="id-8f4b9195ddc34966aeff914a5125b39b" target="5757268c-9261-4b11-8ce7-2711228f3431"/>
+    <element xsi:type="archimate:FlowRelationship" name="GoOn | NoConsumer | SlowConsumer" id="id-4879b045b4574ff38107296788afeeb0" source="id-8f4b9195ddc34966aeff914a5125b39b" target="5757268c-9261-4b11-8ce7-2711228f3431"/>
     <element xsi:type="archimate:FlowRelationship" id="id-da16ec9b8f5a44f88c90221d10cbf8e3" source="556e2806-338b-4a51-85c5-1908e0114f77" target="id-8f4b9195ddc34966aeff914a5125b39b"/>
   </folder>
   <folder name="Views" id="1d9cd7b7-ddc7-416b-97d6-58b4d62d0039" type="diagrams">
