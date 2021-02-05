@@ -24,6 +24,7 @@ SlowConsumer = 0x2
 # [Slow Consumers](https://docs.nats.io/nats-server/nats_admin/slow_consumers) problem problem solution
 - handler creates a temporary inbox and sends its name to requester
 - `SendElement` or `ObjectSection` sends an element and waits for a continuation signal from requester side via the temporary inbox
+  - `GoOn` packet is received -> return
   - `NoConsumer` packet is received -> `ibusnats.ErrNoConsumer` is returned
   - `SlowConsumer` packet is received -> `ibusnats.SlowConsumer` is returned
   - no messages during `(len(section)/(ibusnats.Service.AllowedSectionKBitsPerSec*1000/8) + 10)` seconds -> `ibus.ErrTimeoutExpired` is returned.
@@ -34,6 +35,7 @@ SlowConsumer = 0x2
   - context done -> send `NoConsumer` notification to the handler, return
   - write section or section element to the channel
     - writting to channel took more than `(len(section)/(ibusnats.Service.AllowedSectionKBitsPerSec*1000/8) + 10)` seconds -> send `SlowConsumer` notification to the handler, terminate communication, return `ibusnats.ErrSlowConsumer` as `*secErr`
+      - e.g. router's http client will receive sections and `"status":500,"errorDescription":"section is processed too slow"`
     - otherwise -> send `GoOn` packet to handler, wait for next section from NATS
 
 ## Conclusions
