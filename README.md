@@ -40,6 +40,7 @@ SlowConsumer = 0x2
 
 ## Conclusions
 - [Slow Consumers](https://docs.nats.io/nats-server/nats_admin/slow_consumers) problem is impossible: handler will send to NATS only if requester is ready to read it
+- section is procesed (e.g. sent to http client) too slow -> `ibusnats.ErrSlowConsumer` is returned. I.e. acually `slow consumer` problem is moved from NATS to airs application level. Even if consumer is slow NATS will not be overflowed anymore
 - to detect `no consumer` situation need to send something to NATS. I.e. data for one section will be prepared in vain.
 
 # Limitations
