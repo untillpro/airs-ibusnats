@@ -14,11 +14,12 @@ func _() {
 	_ = x[busPacketSectionArray-3]
 	_ = x[busPacketSectionObject-4]
 	_ = x[busPacketSectionElement-5]
+	_ = x[busPacketMiscInboxName-6]
 }
 
-const _busPacketType_name = "busPacketResponsebusPacketClosebusPacketSectionMapbusPacketSectionArraybusPacketSectionObjectbusPacketSectionElement"
+const _busPacketType_name = "busPacketResponsebusPacketClosebusPacketSectionMapbusPacketSectionArraybusPacketSectionObjectbusPacketSectionElementbusPacketMiscInboxName"
 
-var _busPacketType_index = [...]uint8{0, 17, 31, 50, 71, 93, 116}
+var _busPacketType_index = [...]uint8{0, 17, 31, 50, 71, 93, 116, 138}
 
 func (i busPacketType) String() string {
 	if i >= busPacketType(len(_busPacketType_index)-1) {

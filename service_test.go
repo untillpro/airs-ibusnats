@@ -9,7 +9,6 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	natsserver "github.com/nats-io/nats-server/v2/test"
@@ -123,6 +122,7 @@ func TestServiceStartErrors2(t *testing.T) {
 func TestReconnect(t *testing.T) {
 	ch := make(chan struct{})
 	reconnectCh := make(chan struct{})
+	reconnectedCh := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Nil(t, rs.ObjectSection("obj1", nil, 42))
@@ -137,6 +137,17 @@ func TestReconnect(t *testing.T) {
 		go func() {
 			reconnectCh <- struct{}{}
 		}()
+	}
+	onBeforeMiscSend = func() {
+		// wait for publisher and subscribers reconnection
+		<-reconnectedCh
+		onBeforeMiscSend = nil
+	}
+
+	onBeforeContinuationReceive = func() {
+		// wait for publisher and subscribers reconnection
+		<-reconnectedCh
+		onBeforeContinuationReceive = nil
 	}
 
 	setUp()
@@ -168,9 +179,13 @@ func TestReconnect(t *testing.T) {
 	// wait for 2 reconnections: 1 subscriber and publisher
 	<-reconnectCh
 	<-reconnectCh
-	time.Sleep(500 * time.Millisecond) // sometimes publisher fails to reconnect after onReconnect()
+	go func() {
+		// signal for requester and handler to send and receive continuation respectively
+		reconnectedCh <- struct{}{}
+		reconnectedCh <- struct{}{}
+	}()
 
-	ch <- struct{}{} // signal to continue communication
+	ch <- struct{}{} // signal to write next section
 	sec = <-sections
 	secObj = sec.(ibus.IObjectSection)
 	require.Equal(t, "43", string(secObj.Value()))

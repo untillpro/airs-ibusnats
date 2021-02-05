@@ -16,6 +16,8 @@ import (
 	"github.com/untillpro/godif/services"
 )
 
+// BenchmarkSectionedRequestResponse/#00-4         	    1888	    651566 ns/op	      1535 rps	  145574 B/op	     288 allocs/op
+
 func BenchmarkSectionedRequestResponse(b *testing.B) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
@@ -75,8 +77,7 @@ func BenchmarkSectionedRequestResponse(b *testing.B) {
 			secMap.Next()
 			secMap.Next()
 
-			_, ok := <-sections
-			if !ok {
+			if _, ok := <-sections; ok {
 				b.Fatal()
 			}
 		}
