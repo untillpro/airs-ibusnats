@@ -255,7 +255,6 @@ func TestSectionedEmptyButElementsAndType(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
-	require.NotNil(t, secErr)
 	require.NotNil(t, sections)
 
 	sec := <-sections
@@ -330,6 +329,7 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 		Resource:        "none",
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
+	require.Nil(t, err)
 	require.NotNil(t, sections)
 
 	sec, ok := <-sections
@@ -340,7 +340,6 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 	require.False(t, ok)
 	require.Error(t, ibus.ErrTimeoutExpired, *secErr)
 	fmt.Println(*secErr)
-	require.Nil(t, err)
 }
 
 func TestNoConsumerOnContextDone(t *testing.T) {
@@ -371,7 +370,6 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
 	require.Nil(t, err, err)
-	require.NotNil(t, secErr)
 	require.NotNil(t, sections)
 
 	// first section is ok
@@ -660,7 +658,6 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
 	require.Nil(t, err, err)
-	require.NotNil(t, secErr)
 	require.NotNil(t, sections)
 
 	section := <-sections
@@ -713,7 +710,6 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
 	require.Nil(t, err, err)
-	require.NotNil(t, secErr)
 	require.NotNil(t, sections)
 
 	section := <-sections
@@ -811,10 +807,10 @@ func TestSendElementNoSection(t *testing.T) {
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
 	require.Nil(t, err, err)
 	require.NotNil(t, sections)
-	require.NotNil(t, secErr)
 
 	_, ok := <-sections
 	require.False(t, ok)
+	require.Nil(t, *secErr)
 }
 
 func TestStopOnMiscSendFailed(t *testing.T) {
@@ -838,16 +834,12 @@ func TestStopOnMiscSendFailed(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
 	require.Nil(t, err, err)
-	require.NotNil(t, secErr)
 	require.NotNil(t, sections)
 
 	onBeforeMiscSend = func() {
 		getTestServer(ctx).s.Shutdown()
 		ctx.Value(nATSKey).(*Service).Stop(ctx)
 	}
-	defer func() {
-		onBeforeMiscSend = nil
-	}()
 
 	section := <-sections
 	objSec := section.(ibus.IObjectSection)

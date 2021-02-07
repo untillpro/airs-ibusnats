@@ -23,7 +23,7 @@ import (
 var (
 	// ErrNoConsumer shows that consumer of further sections is gone. Further sections sending is senceless.
 	ErrNoConsumer = errors.New("no consumer for the stream")
-	// ErrSlowConsumer shows that section is processed too slow. Make better internet connection for http client or lower Service.AllowedSectionBytesPerSec
+	// ErrSlowConsumer shows that section is processed too slow. Make better internet connection for http client or lower ibusnats.Service.AllowedSectionBytesPerSec
 	ErrSlowConsumer = errors.New("section is processed too slow")
 
 	onBeforeMiscSend            func() = nil // used in tests
@@ -33,7 +33,7 @@ var (
 			return time.NewTimer(0)
 		},
 	}
-	sectionConsumeAddonTimeout int64 = int64(ibus.DefaultTimeout) // changes in tests
+	sectionConsumeAddonTimeout = int64(ibus.DefaultTimeout) // changes in tests
 )
 
 type busPacketType byte
@@ -49,6 +49,7 @@ const (
 	busPacketMiscInboxName
 )
 
+// ready-to-use byte arrays to easier publish
 var (
 	busMiscPacketGoOn         = []byte{0}
 	busMiscPacketNoConsumer   = []byte{1}
@@ -79,6 +80,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 
 	sendMisc := func(packet []byte, packetDesc string) bool {
 		if onBeforeMiscSend != nil {
+			// used in tests
 			onBeforeMiscSend()
 		}
 		if err := srv.nATSPublisher.Publish(inbox, packet); err != nil {
@@ -281,11 +283,9 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		if rs.miscSub == nil {
 			inbox := nats.NewInbox()
 			if rs.miscSub, err = rs.nc.SubscribeSync(inbox); err != nil {
-				return err
+				return
 			}
 
-			// тут просто открываем инбокс, подписываемся на него и дописываем его имя к пакету
-			// это handler
 			b.WriteByte(byte(busPacketMiscInboxName))
 			b.WriteString(inbox)
 			if err = rs.nc.Publish(rs.subjToReply, b.B); err != nil {
@@ -316,7 +316,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		return
 	}
 
-	// will detect slow consumer on requester side because on handler side there are more problems: NATS time, network time etc.
+	// will detect slow consumer on requester side because it is harder to measure processing time on handler side: NATS time, network time etc.
 	// now will wait for continuation
 	// e.g. AllowedSectionKBitsPerSec = 1000: section len 125000 bytes -> 11 seconds max, 250000 bytes -> 12 seconds max etc
 	//      AllowedSectionKBitsPerSec =  100: section len 125000 bytes -> 20 seconds max, 250000 bytes -> 30 seconds max etc
@@ -353,7 +353,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 type sectionData struct {
 	sectionType string
 	path        []string
-	sectionKind ibus.SectionKind
+	sectionKind ibus.SectionKind // need only for: map -> send element name
 	elems       chan element
 }
 
@@ -426,7 +426,7 @@ func (rs *implIResultSenderCloseable) Close(err error) {
 		b.WriteString(err.Error())
 	}
 	if errPub := rs.nc.Publish(rs.subjToReply, b.B); errPub != nil {
-		logStack("failed to publish to NATS on IResultSenderCloseable.Close", errPub)
+		logStack("failed to publish to NATS", errPub)
 	}
 }
 
