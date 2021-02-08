@@ -125,18 +125,18 @@ func TestReconnect(t *testing.T) {
 	reconnectedCh := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
-		require.Nil(t, rs.ObjectSection("obj1", nil, 42))
+		defer rs.Close(nil)
+		if err := rs.ObjectSection("obj1", nil, 42); err != nil {
+			t.Fatal("nil expected on ObjectSection:", err)
+		}
 		<-ch // wait for reconnection is done
 		// communicate after reconnect
 		require.Nil(t, rs.ObjectSection("obj2", nil, 43))
-		rs.Close(nil)
 	})
 
 	onReconnect = func() {
-		// will be called 2 times: 1 subcriber and 1 publusher
-		go func() {
-			reconnectCh <- struct{}{}
-		}()
+		// will be called 2 times: 1 subcriber and 1 publisher
+		reconnectCh <- struct{}{}
 	}
 	onBeforeMiscSend = func() {
 		// wait for publisher and subscribers reconnection
