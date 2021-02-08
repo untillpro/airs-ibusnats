@@ -39,7 +39,9 @@
     <element xsi:type="archimate:TechnologyProcess" name="Publish" id="c2f2552a-5386-43b8-8196-1cd885c1c6e3"/>
     <element xsi:type="archimate:TechnologyProcess" name="Get responses" id="a25a256f-d425-46a7-9c73-046b1a76807b"/>
     <element xsi:type="archimate:Path" name="&lt;&lt;Inbox>> misc" id="id-5f348fa1333e4813a55d8cff783e6ec9"/>
-    <element xsi:type="archimate:TechnologyProcess" name="Continuation" id="id-8f4b9195ddc34966aeff914a5125b39b"/>
+    <element xsi:type="archimate:TechnologyProcess" name="Continuation" id="id-8f4b9195ddc34966aeff914a5125b39b">
+      <documentation>Misc inbox created by handler side</documentation>
+    </element>
   </folder>
   <folder name="Motivation" id="b111e667-d20d-4988-8db2-fbb645b7663e" type="motivation"/>
   <folder name="Implementation &amp; Migration" id="9c02c455-d852-474a-827f-0f43f0858c0e" type="implementation_migration"/>
@@ -90,6 +92,8 @@
     <element xsi:type="archimate:AssignmentRelationship" id="id-a6363ef8762c4442b0e96bf20b635b8f" source="id-5f348fa1333e4813a55d8cff783e6ec9" target="id-8f4b9195ddc34966aeff914a5125b39b"/>
     <element xsi:type="archimate:FlowRelationship" name="GoOn | NoConsumer | SlowConsumer" id="id-4879b045b4574ff38107296788afeeb0" source="id-8f4b9195ddc34966aeff914a5125b39b" target="5757268c-9261-4b11-8ce7-2711228f3431"/>
     <element xsi:type="archimate:FlowRelationship" id="id-da16ec9b8f5a44f88c90221d10cbf8e3" source="556e2806-338b-4a51-85c5-1908e0114f77" target="id-8f4b9195ddc34966aeff914a5125b39b"/>
+    <element xsi:type="archimate:AssociationRelationship" name="create" id="id-913cd1651e3546119dc8e79241c72fef" source="5757268c-9261-4b11-8ce7-2711228f3431" target="id-8f4b9195ddc34966aeff914a5125b39b"/>
+    <element xsi:type="archimate:ServingRelationship" id="id-1e1ca6546c8d4cc9b2d571af666aebac" source="id-8f4b9195ddc34966aeff914a5125b39b" target="5757268c-9261-4b11-8ce7-2711228f3431"/>
   </folder>
   <folder name="Views" id="1d9cd7b7-ddc7-416b-97d6-58b4d62d0039" type="diagrams">
     <element xsi:type="archimate:ArchimateDiagramModel" name="Default View" id="e7846358-d2f8-4cef-887b-db1b2c05dac9">
