@@ -428,7 +428,7 @@ func TestSlowConsumerObjectSection(t *testing.T) {
 
 	// simulate slow objSec processing. E.g. router sends it to a slow http client
 
-	atomic.StoreInt64(&sectionConsumeAddonTimeout, 0)
+	SetSectionConsumeAddonTimeout(0)
 	time.Sleep(200 * time.Millisecond)
 
 	// next section will actually sent to NATS, actually received but failed to write to `sections` channel due of timeout
@@ -475,7 +475,7 @@ func TestSlowConsumerArraySection(t *testing.T) {
 	require.Equal(t, "42", string(val))
 
 	// simulate slow objSec processing. E.g. router sends it to a slow http client
-	atomic.StoreInt64(&sectionConsumeAddonTimeout, 0)
+	SetSectionConsumeAddonTimeout(0)
 	time.Sleep(200 * time.Millisecond)
 
 	// next section will actually sent to NATS, actually received but failed to write to `sections` channel due of timeout
@@ -523,7 +523,7 @@ func TestSlowConsumerMapSection(t *testing.T) {
 	require.Equal(t, "42", string(val))
 
 	// simulate slow objSec processing. E.g. router sends it to a slow http client
-	atomic.StoreInt64(&sectionConsumeAddonTimeout, 0)
+	SetSectionConsumeAddonTimeout(0)
 	time.Sleep(200 * time.Millisecond)
 
 	// next section will actually sent to NATS, actually received but failed to write to `sections` channel due of timeout
@@ -560,7 +560,7 @@ func TestSlowConsumerFirstElement(t *testing.T) {
 	require.Nil(t, err, err)
 	require.NotNil(t, sections)
 
-	atomic.StoreInt64(&sectionConsumeAddonTimeout, 0)
+	SetSectionConsumeAddonTimeout(0)
 
 	// first read is normal.
 	section := <-sections
@@ -617,7 +617,7 @@ func TestSlowConsumerNextElement(t *testing.T) {
 	require.Equal(t, "42", string(val))
 
 	// simulate slow section processing before read first element
-	atomic.StoreInt64(&sectionConsumeAddonTimeout, 0)
+	SetSectionConsumeAddonTimeout(0)
 	time.Sleep(200 * time.Millisecond)
 
 	// next elem will actually sent to NATS, actually received but failed to write to `elem` channel due of timeout
@@ -867,7 +867,7 @@ func setUp() {
 
 func tearDown() {
 	services.StopAndReset(ctx)
-	sectionConsumeAddonTimeout = int64(ibus.DefaultTimeout)
+	SetSectionConsumeAddonTimeout(ibus.DefaultTimeout)
 	onReconnect = nil
 	onBeforeContinuationReceive = nil
 	onBeforeMiscSend = nil

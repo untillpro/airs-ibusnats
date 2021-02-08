@@ -56,6 +56,11 @@ var (
 	busMiscPacketSlowConsumer = []byte{2}
 )
 
+// SetSectionConsumeAddonTimeout used in tests
+func SetSectionConsumeAddonTimeout(timeout time.Duration) {
+	atomic.StoreInt64(&sectionConsumeAddonTimeout, int64(timeout))
+}
+
 func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub *nats.Subscription, secErr *error,
 	timeout time.Duration, firstMsg *nats.Msg, verbose bool) {
 	var currentSection *sectionData
@@ -324,7 +329,8 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 	if onBeforeContinuationReceive != nil {
 		onBeforeContinuationReceive()
 	}
-	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+ibus.DefaultTimeout)
+	sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
+	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+sectionConsumeDuration)
 	if err != nil {
 		log.Printf("failed to receive continuation signal: %v\n", err)
 		return err
