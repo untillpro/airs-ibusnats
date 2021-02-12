@@ -33,7 +33,7 @@ var (
 			return time.NewTimer(0)
 		},
 	}
-	sectionConsumeAddonTimeout = int64(ibus.DefaultTimeout) // changes in tests
+	sectionConsumeDefaultTimeout = int64(ibus.DefaultTimeout) // changes in tests
 )
 
 type busPacketType byte
@@ -58,7 +58,7 @@ var (
 
 // SetSectionConsumeAddonTimeout used in tests
 func SetSectionConsumeAddonTimeout(timeout time.Duration) {
-	atomic.StoreInt64(&sectionConsumeAddonTimeout, int64(timeout))
+	atomic.StoreInt64(&sectionConsumeDefaultTimeout, int64(timeout))
 }
 
 func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub *nats.Subscription, secErr *error,
@@ -181,7 +181,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionArray.sectionKind, sectionArray.sectionType, sectionArray.path)
 				}
 				allowedSectionMillis := float32(len(msg.Data)) / allowedBytesPerMillisecond
-				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
+				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
 				resetTimer(timer, time.Duration(allowedSectionMillis)*time.Millisecond+sectionConsumeDuration)
 				select {
 				case sections <- sectionArray:
@@ -195,7 +195,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionMap.sectionKind, sectionMap.sectionType, sectionMap.path)
 				}
 				allowedSectionMillis := float32(len(msg.Data)) / allowedBytesPerMillisecond
-				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
+				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
 				resetTimer(timer, time.Duration(allowedSectionMillis)*time.Millisecond+sectionConsumeDuration)
 				select {
 				case sections <- sectionMap:
@@ -209,7 +209,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 					log.Printf("%s section %s:`%s` %v\n", sub.Subject, sectionObject.sectionKind, sectionObject.sectionType, sectionObject.path)
 				}
 				allowedSectionMillis := float32(len(msg.Data)) / allowedBytesPerMillisecond
-				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
+				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
 				resetTimer(timer, time.Duration(allowedSectionMillis)*time.Millisecond+sectionConsumeDuration)
 				select {
 				case sections <- sectionObject:
@@ -219,7 +219,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			}
 			if !sectionConsumeTimeout {
 				allowedElemMillis := float32(len(elemBytes)) / allowedBytesPerMillisecond
-				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
+				sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
 				resetTimer(timer, time.Duration(allowedElemMillis)*time.Millisecond+sectionConsumeDuration)
 				select {
 				case currentSection.elems <- element{elemName, elemBytes}:
@@ -239,7 +239,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			}
 			elemBytes := msg.Data[pos:]
 			allowedElemMillis := float32(len(elemBytes)) / allowedBytesPerMillisecond
-			sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
+			sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
 			resetTimer(timer, time.Duration(allowedElemMillis)*time.Millisecond+sectionConsumeDuration)
 			select {
 			case currentSection.elems <- element{elemName, elemBytes}:
@@ -268,6 +268,12 @@ func resetTimer(timer *time.Timer, timeout time.Duration) {
 }
 
 // sectionMark_1 | len(path)_1 | []( 1x len(path) | path ) |  1xlen(sectionType) | sectionType | 1x len(elemName) | elem name | elemBytes
+// will wait for continuation signal via misc NATS inbox:
+// - `NoConsumer` packet is received -> `ibusnats.ErrNoConsumer` is returned
+// - `SlowConsumer` packet is received -> `ibusnats.SlowConsumer` is returned
+// - no messages during `(len(section)/(ibusnats.Service.AllowedSectionKBitsPerSec*1000/8) + ibus.DefaultTimeout)` seconds -> `ibus.ErrTimeoutExpired` is returned. Examples:
+//   - AllowedSectionKBitsPerSec = 1000: section len 125000 bytes -> 11 seconds max, 250000 bytes -> 12 seconds max etc
+//   - AllowedSectionKBitsPerSec =  100: section len 125000 bytes -> 20 seconds max, 250000 bytes -> 30 seconds max etc
 func (rs *implIResultSenderCloseable) SendElement(name string, element interface{}) (err error) {
 	if element == nil {
 		// will not send nothingness
@@ -321,16 +327,14 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		return
 	}
 
-	// will detect slow consumer on requester side because it is harder to measure processing time on handler side: NATS time, network time etc.
-	// now will wait for continuation
-	// e.g. AllowedSectionKBitsPerSec = 1000: section len 125000 bytes -> 11 seconds max, 250000 bytes -> 12 seconds max etc
-	//      AllowedSectionKBitsPerSec =  100: section len 125000 bytes -> 20 seconds max, 250000 bytes -> 30 seconds max etc
+	// now let's wait for continuation
 	processTimeout := int32(b.Len()) / (atomic.LoadInt32(&srv.AllowedSectionKBitsPerSec) * 1000 / 8)
 	if onBeforeContinuationReceive != nil {
+		// used in tests
 		onBeforeContinuationReceive()
 	}
-	sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeAddonTimeout))
-	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+sectionConsumeDuration)
+	sectionConsumeDefaultDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
+	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+sectionConsumeDefaultDuration)
 	if err != nil {
 		log.Printf("failed to receive continuation signal: %v\n", err)
 		return err
