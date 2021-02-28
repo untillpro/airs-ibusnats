@@ -28,12 +28,15 @@ func TestSectionedCommunicationBasic(t *testing.T) {
 		defer rs.Close(errors.New("test error"))
 
 		require.Nil(t, rs.ObjectSection("secObj", []string{"meta"}, expectedTotal))
+
 		rs.StartMapSection("secMap", []string{"classifier", "2"})
 		require.Nil(t, rs.SendElement("id1", expected1))
 		require.Nil(t, rs.SendElement("id2", expected2))
+
 		rs.StartArraySection("secArr", []string{"classifier", "4"})
 		require.Nil(t, rs.SendElement("", "arrEl1"))
 		require.Nil(t, rs.SendElement("", "arrEl2"))
+
 		rs.StartMapSection("deps", []string{"classifier", "3"})
 		require.Nil(t, rs.SendElement("id3", expected3))
 		require.Nil(t, rs.SendElement("id4", expected4))
@@ -139,7 +142,7 @@ func TestSectionedCommunicationBasic(t *testing.T) {
 	require.NotNil(t, *secErr, *secErr) // test error
 }
 
-func TestSectionedEmpty(t *testing.T) {
+func TestSectionedEmptyElements(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 
