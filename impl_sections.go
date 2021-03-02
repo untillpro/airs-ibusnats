@@ -34,6 +34,7 @@ var (
 		},
 	}
 	sectionConsumeDefaultTimeout = int64(ibus.DefaultTimeout) // changes in tests
+	miscChannelReadTimeout       = int64(ibus.DefaultTimeout) // changes it tests
 )
 
 type busPacketType byte
@@ -303,8 +304,8 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		// used in tests
 		onBeforeContinuationReceive()
 	}
-	sectionConsumeDefaultDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
-	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+sectionConsumeDefaultDuration)
+	miscChannelReadDefaultDuration := time.Duration(atomic.LoadInt64(&miscChannelReadTimeout))
+	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+miscChannelReadDefaultDuration)
 	if err != nil {
 		log.Printf("failed to receive continuation signal: %v\n", err)
 		return err
