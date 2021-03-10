@@ -261,7 +261,9 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 	}
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
-	if !rs.sectionStartSent {
+	if rs.sectionStartSent {
+		b.WriteByte(byte(busPacketSectionElement))
+	} else {
 		if rs.miscSub == nil {
 			inbox := nats.NewInbox()
 			if rs.miscSub, err = rs.nc.SubscribeSync(inbox); err != nil {
@@ -286,8 +288,6 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		b.WriteString(rs.currentSectionType)
 
 		rs.sectionStartSent = true
-	} else {
-		b.WriteByte(byte(busPacketSectionElement))
 	}
 	if rs.currentSection == busPacketSectionMap {
 		b.WriteByte(byte(len(name)))
@@ -322,10 +322,15 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 			log.Printf("`slow consumer` received")
 		}
 		return ErrSlowConsumer
-	default:
+	case busMiscPacketGoOn[0]:
 		if srv.Verbose {
 			log.Printf("`go on` received")
 		}
+	default:
+		if srv.Verbose {
+			log.Printf("unknown misc packet received:\n%s", hex.Dump(miscMsg.Data))
+		}
+		return errors.New("unknown misc packet received: " + hex.EncodeToString(miscMsg.Data))
 	}
 
 	return

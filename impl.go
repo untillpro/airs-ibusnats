@@ -25,6 +25,19 @@ import (
 	"github.com/valyala/bytebufferpool"
 )
 
+// used in tests
+var onReconnect func() = nil
+
+type senderImpl struct {
+	partNumber int
+	replyTo    string
+}
+
+type nATSSubscriber struct {
+	conn         *nats.Conn
+	subscription *nats.Subscription
+}
+
 func implSendRequest2(ctx context.Context,
 	request ibus.Request, timeout time.Duration) (resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
 	reqData, _ := json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
@@ -59,7 +72,7 @@ func implSendRequest2(ctx context.Context,
 	}
 }
 
-// panics if wrong sender provided
+// panics on wrong sender
 func implSendResponse(ctx context.Context, sender interface{}, response ibus.Response) {
 	sImpl := sender.(senderImpl)
 	srv.nATSSubscribers[sImpl.partNumber].sendSingleResponseToNATS(response, sImpl.replyTo)
@@ -72,19 +85,6 @@ func implSendParallelResponse2(ctx context.Context, sender interface{}) (rsender
 		subjToReply: sImpl.replyTo,
 		nc:          srv.nATSSubscribers[sImpl.partNumber].conn,
 	}
-}
-
-// used in tests
-var onReconnect func() = nil
-
-type senderImpl struct {
-	partNumber int
-	replyTo    string
-}
-
-type nATSSubscriber struct {
-	conn         *nats.Conn
-	subscription *nats.Subscription
 }
 
 func logStack(desc string, err error) {

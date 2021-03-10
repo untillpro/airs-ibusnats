@@ -32,10 +32,6 @@ func BenchmarkSectionedRequestResponse(b *testing.B) {
 		require.Nil(b, rs.SendElement("id3", expected3))
 		require.Nil(b, rs.SendElement("id4", expected4))
 
-		// failed to marshal an element
-		require.NotNil(b, rs.SendElement("", func() {}))
-		require.NotNil(b, rs.ObjectSection("", nil, func() {}))
-
 		rs.Close(errors.New("test error"))
 	})
 
