@@ -16,6 +16,8 @@ import (
 	"github.com/untillpro/godif/services"
 )
 
+// BenchmarkSectionedRequestResponse/#00-4         	    1888	    651566 ns/op	      1535 rps	  145574 B/op	     288 allocs/op
+
 func BenchmarkSectionedRequestResponse(b *testing.B) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
@@ -29,10 +31,6 @@ func BenchmarkSectionedRequestResponse(b *testing.B) {
 		rs.StartMapSection("deps", []string{"classifier", "3"})
 		require.Nil(b, rs.SendElement("id3", expected3))
 		require.Nil(b, rs.SendElement("id4", expected4))
-
-		// failed to marshal an element
-		require.NotNil(b, rs.SendElement("", func() {}))
-		require.NotNil(b, rs.ObjectSection("", nil, func() {}))
 
 		rs.Close(errors.New("test error"))
 	})
@@ -75,8 +73,9 @@ func BenchmarkSectionedRequestResponse(b *testing.B) {
 			secMap.Next()
 			secMap.Next()
 
-			_, ok := <-sections
-			require.False(b, ok)
+			if _, ok := <-sections; ok {
+				b.Fatal()
+			}
 		}
 		elapsed := time.Since(start).Seconds()
 		b.ReportMetric(float64(b.N)/elapsed, "rps")

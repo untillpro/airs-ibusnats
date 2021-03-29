@@ -7,7 +7,6 @@ package ibusnats
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -102,7 +101,6 @@ func TestMultipleResponse(t *testing.T) {
 		WSID:            1,
 		PartitionNumber: 0,
 		Resource:        "none",
-		Body:            []byte{0}, // unmarshallable
 	}
 
 	resp, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
@@ -132,7 +130,6 @@ func TestMultipleParallelResponse(t *testing.T) {
 		WSID:            1,
 		PartitionNumber: 0,
 		Resource:        "none",
-		Body:            []byte{0}, // unmarshallable
 	}
 
 	_, sections, secErr, _ := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
@@ -172,7 +169,6 @@ func TestNormalResponseAfterParallelResponse(t *testing.T) {
 		WSID:            1,
 		PartitionNumber: 0,
 		Resource:        "none",
-		Body:            []byte{0}, // unmarshallable
 	}
 
 	_, sections, secErr, _ := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
@@ -228,5 +224,4 @@ func TestHandlerPanic(t *testing.T) {
 	require.Contains(t, string(resp.Data), "test panic")
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	require.Equal(t, "text/plain", resp.ContentType)
-	fmt.Println(string(resp.Data))
 }
