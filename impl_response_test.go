@@ -110,43 +110,6 @@ func TestMultipleResponse(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestMultipleParallelResponse(t *testing.T) {
-	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
-		rs := ibus.SendParallelResponse2(ctx, sender)
-		rs.ObjectSection("obj1", []string{"meta"}, 42)
-
-		// nothing happens, no error. Publisher will receive sections as they're sent
-		rs = ibus.SendParallelResponse2(ctx, sender)
-		rs.ObjectSection("obj2", []string{"meta"}, 43)
-		rs.Close(nil)
-	})
-
-	setUp()
-	defer tearDown()
-
-	req := ibus.Request{
-		Method:          ibus.HTTPMethodPOST,
-		QueueID:         "airs-bp",
-		WSID:            1,
-		PartitionNumber: 0,
-		Resource:        "none",
-	}
-
-	_, sections, secErr, _ := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
-
-	sec := <-sections
-	secObj := sec.(ibus.IObjectSection)
-	require.NotNil(t, secObj.Value())
-
-	sec = <-sections
-	secObj = sec.(ibus.IObjectSection)
-	require.NotNil(t, secObj.Value())
-
-	_, ok := <-sections
-	require.False(t, ok)
-	require.Nil(t, *secErr)
-}
-
 func TestNormalResponseAfterParallelResponse(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)

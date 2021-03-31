@@ -24,17 +24,18 @@ var (
 	// ErrNoConsumer shows that consumer of further sections is gone. Further sections sending is senceless.
 	ErrNoConsumer = errors.New("no consumer for the stream")
 	// ErrSlowConsumer shows that section is processed too slow. Make better internet connection for http client or lower ibusnats.Service.AllowedSectionBytesPerSec
-	ErrSlowConsumer = errors.New("section is processed too slow")
+	ErrSlowConsumer      = errors.New("section is processed too slow")
+	errCommunicationDone = errors.New("communication done")
 
 	onBeforeMiscSend            func() = nil // used in tests
 	onBeforeContinuationReceive func() = nil // used in tests
+	onBeforeCloseSend           func() = nil // used in tests
 	timerPool                          = sync.Pool{
 		New: func() interface{} {
 			return time.NewTimer(0)
 		},
 	}
 	sectionConsumeDefaultTimeout = int64(ibus.DefaultTimeout) // changes in tests
-	miscChannelReadTimeout       = int64(ibus.DefaultTimeout) // changes it tests
 )
 
 type busPacketType byte
@@ -253,12 +254,16 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 	if !rs.sectionStarted {
 		return errors.New("section is not started")
 	}
+	if rs.lastError != nil {
+		return rs.lastError
+	}
 	bytesElem, ok := element.([]byte)
 	if !ok {
 		if bytesElem, err = json.Marshal(element); err != nil {
 			return
 		}
 	}
+	defer func() { rs.lastError = err }()
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
 	if rs.sectionStartSent {
@@ -304,8 +309,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		// used in tests
 		onBeforeContinuationReceive()
 	}
-	miscChannelReadDefaultDuration := time.Duration(atomic.LoadInt64(&miscChannelReadTimeout))
-	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+miscChannelReadDefaultDuration)
+	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+ibus.DefaultTimeout)
 	if err != nil {
 		log.Printf("failed to receive continuation signal: %v\n", err)
 		return err
@@ -365,6 +369,7 @@ type implIResultSenderCloseable struct {
 	sectionStartSent   bool
 	sectionStarted     bool
 	miscSub            *nats.Subscription
+	lastError          error
 }
 
 type element struct {
@@ -400,10 +405,16 @@ func (s *sectionDataObject) Value() []byte {
 }
 
 func (rs *implIResultSenderCloseable) Close(err error) {
+	if onBeforeCloseSend != nil {
+		onBeforeCloseSend()
+	}
 	if rs.miscSub != nil {
 		if errUnsub := rs.miscSub.Unsubscribe(); errUnsub != nil {
 			logStack("failed to unsibscribe from misc inbox", errUnsub)
 		}
+	}
+	if rs.lastError != nil {
+		return
 	}
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)
@@ -414,6 +425,7 @@ func (rs *implIResultSenderCloseable) Close(err error) {
 	if errPub := rs.nc.Publish(rs.subjToReply, b.B); errPub != nil {
 		logStack("failed to publish to NATS", errPub)
 	}
+	rs.lastError = errCommunicationDone
 }
 
 func (rs *implIResultSenderCloseable) StartArraySection(sectionType string, path []string) {
