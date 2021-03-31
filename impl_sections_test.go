@@ -291,8 +291,9 @@ func TestSectionedEmptyButElementsAndType(t *testing.T) {
 func TestReadFirstPacketTimeout(t *testing.T) {
 	ch := make(chan byte)
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
-		ibus.SendParallelResponse2(ctx, sender)
+		rs := ibus.SendParallelResponse2(ctx, sender)
 		time.Sleep(600 * time.Millisecond)
+		rs.Close(nil)
 		ch <- 1
 	})
 
@@ -315,10 +316,14 @@ func TestReadFirstPacketTimeout(t *testing.T) {
 }
 
 func TestReadSectionPacketTimeout(t *testing.T) {
+	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Nil(t, rs.ObjectSection("", nil, 42))
 		time.Sleep(300 * time.Millisecond)
+		require.Error(t, ErrNoConsumer, rs.ObjectSection("", nil, 43))
+		rs.Close(nil)
+		ch <- struct{}{}
 	})
 
 	setUp()
@@ -335,14 +340,15 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, sections)
 
-	sec, ok := <-sections
+	sec := <-sections
 	sec.(ibus.IObjectSection).Value()
-	require.True(t, ok)
 
-	_, ok = <-sections
+	_, ok := <-sections
 	require.False(t, ok)
 	require.Error(t, ibus.ErrTimeoutExpired, *secErr)
 	fmt.Println(*secErr)
+
+	<-ch
 }
 
 func TestNoConsumerOnContextDone(t *testing.T) {
@@ -355,7 +361,6 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 		// note: further will cause ibus.ErrTimeoutExpired due of no data on misc inbox
 		require.Error(t, ErrNoConsumer, rs.ObjectSection("objSec", []string{"class"}, 43))
 
-		// allowed but senceless
 		rs.Close(nil)
 
 		ch <- struct{}{}
@@ -394,7 +399,6 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 	<-ch
 }
 
-
 func TestSlowConsumerSection(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
@@ -405,8 +409,6 @@ func TestSlowConsumerSection(t *testing.T) {
 		rs.StartMapSection("mapSec2", []string{"class"})
 		require.Error(t, ErrSlowConsumer, rs.SendElement("elem", 42))
 
-		// not necessary because requester is unsubscribed from topic after `slow consumer` detection
-		// call anyway to cover
 		rs.Close(nil)
 	})
 
@@ -450,8 +452,6 @@ func TestSlowConsumerFirstElement(t *testing.T) {
 		// next element will be actualy sent but `slow consumer` situation will be detected
 		require.Error(t, ErrSlowConsumer, rs.SendElement("elem", 42))
 
-		// not necessary because requester is unsubscribed from topic after `slow consumer` detection
-		// call anyway to cover
 		rs.Close(nil)
 	})
 
@@ -499,8 +499,6 @@ func TestSlowConsumerNextElement(t *testing.T) {
 		// next element will be actualy sent but `slow consumer` situation will be detected
 		require.Error(t, ErrSlowConsumer, rs.SendElement("elem2", 43))
 
-		// not necessary because requester is unsubscribed from topic after `slow consumer` detection
-		// call anyway to cover
 		rs.Close(nil)
 	})
 
@@ -549,10 +547,6 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 		<-ch // wait for context cancel
 		require.Error(t, ErrNoConsumer, rs.SendElement("f1", "v2"))
 
-		// wrong to send anything more. will fail on timeout reading from misc channel
-		// require.Error(t, ibus.ErrTimeoutExpired, rs.SendElement("f1", "v3")) // requester will not send to misc inbox -> timeout reading from misc inbox
-
-		// allowed but senceless. Will be sent to NATS and disappeared into the void...
 		rs.Close(nil)
 		ch <- struct{}{}
 	})
@@ -601,10 +595,6 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 		<-ch //wait for context close
 		require.Error(t, ErrNoConsumer, rs.SendElement("", "arrEl2"))
 
-		// wrong to send anything more. Will fail on timeout reading from misc channel
-		// require.Error(t, ErrNoConsumer, rs.SendElement("", "arrEl3"))
-
-		// allowed but senceless. Will be sent to NATS and disappeared into the void...
 		rs.Close(nil)
 		ch <- struct{}{}
 	})
@@ -762,6 +752,40 @@ func TestStopOnMiscSendFailed(t *testing.T) {
 	require.Error(t, nats.ErrConnectionClosed, *secErr)
 }
 
+func TestErrorOnSendAfterClose(t *testing.T) {
+	ch := make(chan struct{})
+	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
+		rs := ibus.SendParallelResponse2(ctx, sender)
+		rs.Close(nil)
+
+		require.Error(t, errCommunicationDone, rs.ObjectSection("", []string{}, 42))
+		rs.StartMapSection("", []string{})
+		require.Error(t, errCommunicationDone, rs.SendElement("", 42))
+		rs.Close(nil)
+		ch <- struct{}{}
+	})
+
+	setUp()
+	defer tearDown()
+
+	req := ibus.Request{
+		Method:          ibus.HTTPMethodPOST,
+		QueueID:         "airs-bp",
+		WSID:            1,
+		PartitionNumber: 0,
+		Resource:        "none",
+	}
+	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 150*time.Millisecond)
+	require.Nil(t, err, err)
+	require.NotNil(t, sections)
+
+	_, ok := <-sections
+	require.False(t, ok)
+	require.Nil(t, err)
+	require.Nil(t, *secErr)
+	<-ch
+}
+
 func setUp() {
 	Declare(DeclareTest(1))
 	godif.Require(&ibus.SendParallelResponse2)
@@ -774,6 +798,16 @@ func setUp() {
 		panic(err)
 	}
 	srv.Verbose = true
+	current := ibus.SendParallelResponse2
+	atomic.StoreInt32(&expectedCloseCalls, 0)
+	ibus.SendParallelResponse2 = func(ctx context.Context, sender interface{}) (rsender ibus.IResultSenderClosable) {
+		res := current(ctx, sender)
+		atomic.AddInt32(&expectedCloseCalls, 1)
+		return res
+	}
+	onBeforeCloseSend = func() {
+		atomic.AddInt32(&actualCloseCalls, 1)
+	}
 }
 
 func tearDown() {
@@ -782,6 +816,12 @@ func tearDown() {
 	onReconnect = nil
 	onBeforeContinuationReceive = nil
 	onBeforeMiscSend = nil
+	if expectedCloseCalls > actualCloseCalls {
+		panic("")
+	}
+	expectedCloseCalls = 0
+	actualCloseCalls = 0
+	onBeforeCloseSend = nil
 }
 
 func mapFromJSON(jsonBytes []byte) map[string]interface{} {
@@ -808,6 +848,8 @@ var (
 	expectedTotal = map[string]interface{}{
 		"total": float64(1),
 	}
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx                context.Context
+	cancel             context.CancelFunc
+	expectedCloseCalls int32
+	actualCloseCalls   int32
 )
