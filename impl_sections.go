@@ -30,8 +30,8 @@ var (
 	continuationTimeout                = int64(ibus.DefaultTimeout) // changes in tests
 )
 
-// used in tests
-func setContinuationTimeout(t time.Duration) {
+// used in tests (also in airs-router2 tests)
+func SetContinuationTimeout(t time.Duration) {
 	atomic.StoreInt64(&continuationTimeout, int64(t))
 }
 

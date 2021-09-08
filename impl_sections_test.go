@@ -424,7 +424,7 @@ func TestContinuationTimeoutNextSection(t *testing.T) {
 		PartitionNumber: 0,
 		Resource:        "none",
 	}
-	setContinuationTimeout(time.Millisecond * 10)
+	SetContinuationTimeout(time.Millisecond * 10)
 
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, time.Millisecond*200) // send\receive elements timeout
 	require.Nil(t, err, err)
@@ -479,7 +479,7 @@ func TestSlowConsumerFirstElement(t *testing.T) {
 		PartitionNumber: 0,
 		Resource:        "none",
 	}
-	setContinuationTimeout(10 * time.Millisecond)
+	SetContinuationTimeout(10 * time.Millisecond)
 
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 200*time.Millisecond)
 	require.Nil(t, err, err)
@@ -528,7 +528,7 @@ func TestSlowConsumerNextElement(t *testing.T) {
 		PartitionNumber: 0,
 		Resource:        "none",
 	}
-	setContinuationTimeout(10 * time.Millisecond)
+	SetContinuationTimeout(10 * time.Millisecond)
 
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 200*time.Millisecond)
 	require.Nil(t, err, err)
@@ -829,7 +829,7 @@ func setUp() {
 
 func tearDown() {
 	services.StopAndReset(ctx)
-	setContinuationTimeout(ibus.DefaultTimeout)
+	SetContinuationTimeout(ibus.DefaultTimeout)
 	onReconnect = nil
 	onBeforeContinuationReceive = nil
 	onBeforeMiscSend = nil
