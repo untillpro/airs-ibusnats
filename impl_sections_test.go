@@ -399,15 +399,17 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 	<-ch
 }
 
-func TestSlowConsumerSection(t *testing.T) {
+func TestContinuationTimeoutNextSection(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.StartMapSection("mapSec", []string{"class"})
 		require.Nil(t, rs.SendElement("elem", 42))
 
-		// next section will be actualy sent but `slow consumer` situation will be detected
 		rs.StartMapSection("mapSec2", []string{"class"})
-		require.Error(t, ErrSlowConsumer, rs.SendElement("elem", 42))
+		// section elemet will be actually sent and received but there will be the continuation timeout
+		require.ErrorIs(t, rs.SendElement("elem", 44), ibus.ErrTimeoutExpired)
+		// that will not be sent due of the last error
+		require.ErrorIs(t, rs.SendElement("elem", 45), ibus.ErrTimeoutExpired)
 
 		rs.Close(nil)
 	})
@@ -422,35 +424,47 @@ func TestSlowConsumerSection(t *testing.T) {
 		PartitionNumber: 0,
 		Resource:        "none",
 	}
-	atomic.StoreInt32(&srv.AllowedSectionKBitsPerSec, 400) // 50 msecs section consume timeout
+	setContinuationTimeout(time.Millisecond * 10)
 
-	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
+	_, sections, secErr, err := ibus.SendRequest2(ctx, req, time.Millisecond*200) // send\receive elements timeout
 	require.Nil(t, err, err)
 	require.NotNil(t, sections)
 
-	// first read is normal.
+	// first section is normally received
 	section := <-sections
 	mapSec := section.(ibus.IMapSection)
 	name, val, _ := mapSec.Next()
 	require.Equal(t, "elem", name)
 	require.Equal(t, "42", string(val))
 
-	// simulate slow objSec processing. E.g. router sends it to a slow http client
-	SetSectionConsumeAddonTimeout(0)
-	time.Sleep(200 * time.Millisecond)
+	// element of the next section is actually sent by sender already
+	// receiver is writting it to the sections channel now
+	// the sender is waiting for continuation signal now
+	// simulate slow first section processing
+	time.Sleep(time.Millisecond * 100)
 
-	// next section will actually sent to NATS, actually received but failed to write to `sections` channel due of timeout
+	// now read the next section which is being writting to the channel now
+	// sender has a continuation timeout despite next section element is sent already
+	section = <-sections
+	mapSec = section.(ibus.IMapSection)
+	name, val, _ = mapSec.Next()
+	require.Equal(t, "elem", name)
+	require.Equal(t, "44", string(val))
+
+	// there will be no next element
 	_, ok := <-sections
 	require.False(t, ok)
-	require.Error(t, ErrSlowConsumer, *secErr)
+	require.NotNil(t, *secErr)
 }
 
 func TestSlowConsumerFirstElement(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.StartMapSection("mapSec", []string{"class"})
-		// next element will be actualy sent but `slow consumer` situation will be detected
-		require.Error(t, ErrSlowConsumer, rs.SendElement("elem", 42))
+		// next element will be actualy sent but there will be the continuation timeout
+		require.ErrorIs(t, rs.SendElement("elem", 42), ibus.ErrTimeoutExpired)
+		// that will not be sent due of the last error
+		require.ErrorIs(t, rs.SendElement("elem", 43), ibus.ErrTimeoutExpired)
 
 		rs.Close(nil)
 	})
@@ -465,29 +479,29 @@ func TestSlowConsumerFirstElement(t *testing.T) {
 		PartitionNumber: 0,
 		Resource:        "none",
 	}
-	atomic.StoreInt32(&srv.AllowedSectionKBitsPerSec, 400) // 50 msecs section consume timeout
+	setContinuationTimeout(10 * time.Millisecond)
 
-	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
+	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 200*time.Millisecond)
 	require.Nil(t, err, err)
 	require.NotNil(t, sections)
 
-	SetSectionConsumeAddonTimeout(0)
-
-	// first read is normal.
+	// section read is normal
 	section := <-sections
 	mapSec := section.(ibus.IMapSection)
 
-	// simulate slow section processing before read first element
+	// simulate slow section processing before read the first element
+	time.Sleep(100 * time.Millisecond)
 
-	time.Sleep(200 * time.Millisecond)
-
-	// first elem will actually sent to NATS, actually received but failed to write to `elem` channel due of timeout
-	_, _, ok := mapSec.Next()
-	require.False(t, ok)
+	// first elem will actually sent to NATS, actually received and written to elems channel and successufuly read here
+	// sender wil have continuation timeout up to this moment
+	name, val, ok := mapSec.Next()
+	require.True(t, ok)
+	require.Equal(t, "elem", name)
+	require.Equal(t, "42", string(val))
 
 	_, ok = <-sections
 	require.False(t, ok)
-	require.Error(t, ErrSlowConsumer, *secErr)
+	require.NotNil(t, *secErr)
 }
 
 func TestSlowConsumerNextElement(t *testing.T) {
@@ -496,8 +510,10 @@ func TestSlowConsumerNextElement(t *testing.T) {
 		rs.StartMapSection("mapSec", []string{"class"})
 		require.Nil(t, rs.SendElement("elem", 42))
 
-		// next element will be actualy sent but `slow consumer` situation will be detected
-		require.Error(t, ErrSlowConsumer, rs.SendElement("elem2", 43))
+		// next element will be actualy sent but there will be the continuation timeout
+		require.ErrorIs(t, rs.SendElement("elem", 43), ibus.ErrTimeoutExpired)
+		// that will not be sent due of the last error
+		require.ErrorIs(t, rs.SendElement("elem", 44), ibus.ErrTimeoutExpired)
 
 		rs.Close(nil)
 	})
@@ -512,9 +528,9 @@ func TestSlowConsumerNextElement(t *testing.T) {
 		PartitionNumber: 0,
 		Resource:        "none",
 	}
-	atomic.StoreInt32(&srv.AllowedSectionKBitsPerSec, 400) // 50 msecs section consume timeout
+	setContinuationTimeout(10 * time.Millisecond)
 
-	_, sections, secErr, err := ibus.SendRequest2(ctx, req, ibus.DefaultTimeout)
+	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 200*time.Millisecond)
 	require.Nil(t, err, err)
 	require.NotNil(t, sections)
 
@@ -525,17 +541,18 @@ func TestSlowConsumerNextElement(t *testing.T) {
 	require.Equal(t, "elem", name)
 	require.Equal(t, "42", string(val))
 
-	// simulate slow section processing before read first element
-	SetSectionConsumeAddonTimeout(0)
-	time.Sleep(200 * time.Millisecond)
+	// simulate slow section processing before read next element
+	time.Sleep(100 * time.Millisecond)
 
-	// next elem will actually sent to NATS, actually received but failed to write to `elem` channel due of timeout
-	_, _, ok := mapSec.Next()
-	require.False(t, ok)
+	// next elem will actually sent to NATS, actually received and written to the elems channel
+	// sender will have continuation timeout up to this moment
+	name, val, _ = mapSec.Next()
+	require.Equal(t, "elem", name)
+	require.Equal(t, "43", string(val))
 
-	_, ok = <-sections
+	_, ok := <-sections
 	require.False(t, ok)
-	require.Error(t, ErrSlowConsumer, *secErr)
+	require.NotNil(t, *secErr)
 }
 
 func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
@@ -812,7 +829,7 @@ func setUp() {
 
 func tearDown() {
 	services.StopAndReset(ctx)
-	SetSectionConsumeAddonTimeout(ibus.DefaultTimeout)
+	setContinuationTimeout(ibus.DefaultTimeout)
 	onReconnect = nil
 	onBeforeContinuationReceive = nil
 	onBeforeMiscSend = nil
@@ -822,14 +839,6 @@ func tearDown() {
 	expectedCloseCalls = 0
 	actualCloseCalls = 0
 	onBeforeCloseSend = nil
-}
-
-func mapFromJSON(jsonBytes []byte) map[string]interface{} {
-	res := map[string]interface{}{}
-	if err := json.Unmarshal(jsonBytes, &res); err != nil {
-		panic(err)
-	}
-	return res
 }
 
 var (

@@ -38,6 +38,8 @@ type nATSSubscriber struct {
 	subscription *nats.Subscription
 }
 
+// if called by router: client is disconnected -> ctx.Done()
+// also called by narrator on saga narrate
 func implSendRequest2(ctx context.Context,
 	request ibus.Request, timeout time.Duration) (resp ibus.Response, sections <-chan ibus.ISection, secError *error, err error) {
 	reqData, _ := json.Marshal(request) // assumming ibus.Request can't be unmarshallable (no interfaces etc)
@@ -147,7 +149,7 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 
 	// Check answer type
 	// if kind of section -> there will nothing but sections or error
-	// response -> there will be nothing more
+	// response -> there will be nothing more (no sections)
 	if firstMsg.Data[0] == byte(busPacketResponse) {
 		// Single Response
 		// Deserialize Response

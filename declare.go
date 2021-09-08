@@ -23,11 +23,10 @@ func Declare(service *Service) {
 func DeclareTest(partitionsAmount int) *Service {
 	godif.ProvideSliceElement(&services.Services, &testServer{})
 	return &Service{
-		NATSServers:               "nats://127.0.0.1:4222",
-		Parts:                     1,
-		CurrentPart:               1,
-		Queues:                    map[string]int{"airs-bp": partitionsAmount},
-		CurrentQueueName:          "airs-bp",
-		AllowedSectionKBitsPerSec: 1000,
+		NATSServers:      "nats://127.0.0.1:4222",
+		Parts:            1,
+		CurrentPart:      1,
+		Queues:           map[string]int{"airs-bp": partitionsAmount},
+		CurrentQueueName: "airs-bp",
 	}
 }

@@ -28,13 +28,6 @@ type Service struct {
 	Parts            int
 	CurrentPart      int
 	Verbose          bool // verbose debug log if true
-	// minimal speed in kbits per sec allowed to process a section read from `sections` channel by requester side
-	// section processing took more time than `(sectionSize/(AllowedSectionKBitsPerSec*1000/8) + ibus.DefaultTimeout)` seconds -> `SendElement` or `ObjectSection` will return `ErrSlowConsumer`
-	// examples:
-	//   AllowedSectionKBitsPerSec = 1000: len(elem or section+elem) 125000 bytes -> 11 seconds max, 250000 bytes -> 12 seconds max etc
-	//   AllowedSectionKBitsPerSec =  100: len(elem or section+elem) 125000 bytes -> 20 seconds max, 250000 bytes -> 30 seconds max etc
-	// no default value
-	AllowedSectionKBitsPerSec int32
 	nATSPublisher             *nats.Conn
 	nATSSubscribers           map[int]*nATSSubscriber // partitionNumber->subscriber
 }
@@ -70,7 +63,7 @@ func (s *Service) connectSubscribers() error {
 		// router has no subscribers
 		return nil
 	}
-	numOfSubjects, ok := s.Queues[s.CurrentQueueName]
+	numOfSubjects, ok := s.Queues[s.CurrentQueueName] // 100 (hardcoded at airs-bp2 main())
 	if !ok {
 		return errors.New("can't find number of subjects in queues map")
 	}

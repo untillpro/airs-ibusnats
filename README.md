@@ -2,7 +2,8 @@
 [![codecov](https://codecov.io/gh/untillpro/airs-ibusnats/branch/master/graph/badge.svg?token=HmtGrmC6C1)](https://codecov.io/gh/untillpro/airs-ibusnats)
 
 - NATS implementation of ibus interface
-- `Slow consumer` problem is solved (see `ibusnats.getSectionsFromNATS()` in archimate file)
+- `Backpressure` is implemented. Next section will not be sent by the service until the sender claimed he is ready to receive it.
+- `Slow consumer` problem is eliminated: the client could be as slow as it want. But the service stops communication if the sender processes a section element longer than 10 seconds
 
 # Bus packets binary formats
 ```
@@ -16,10 +17,9 @@ Close = 0x1 [ErrorMessage]
 MiscInboxName = 0x6 Name
 ```
 ```
-Misc Stream = GoOn | NoConsumer | SlowConsumer
+Misc Stream = GoOn | NoConsumer
 GoOn = 0x0
 NoConsumer = 0x1
-SlowConsumer = 0x2
 ```
 
 # Limitations

@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,24 +21,21 @@ import (
 
 var (
 	// ErrNoConsumer shows that consumer of further sections is gone. Further sections sending is senceless.
-	ErrNoConsumer = errors.New("no consumer for the stream")
-	// ErrSlowConsumer shows that section is processed too slow. Make better internet connection for http client or lower ibusnats.Service.AllowedSectionBytesPerSec
-	ErrSlowConsumer      = errors.New("section is processed too slow")
+	ErrNoConsumer        = errors.New("no consumer for the stream")
 	errCommunicationDone = errors.New("communication done")
 
-	onBeforeMiscSend            func() = nil // used in tests
-	onBeforeContinuationReceive func() = nil // used in tests
-	onBeforeCloseSend           func() = nil // used in tests
-	timerPool                          = sync.Pool{
-		New: func() interface{} {
-			return time.NewTimer(0)
-		},
-	}
-	sectionConsumeDefaultTimeout = int64(ibus.DefaultTimeout) // changes in tests
+	onBeforeMiscSend            func() = nil                        // used in tests
+	onBeforeContinuationReceive func() = nil                        // used in tests
+	onBeforeCloseSend           func() = nil                        // used in tests
+	continuationTimeout                = int64(ibus.DefaultTimeout) // changes in tests
 )
 
+// used in tests
+func setContinuationTimeout(t time.Duration) {
+	atomic.StoreInt64(&continuationTimeout, int64(t))
+}
+
 type busPacketType byte
-type busPacketMiscType byte
 
 const (
 	busPacketResponse busPacketType = iota
@@ -53,16 +49,11 @@ const (
 
 // ready-to-use byte arrays to easier publish
 var (
-	busMiscPacketGoOn         = []byte{0}
-	busMiscPacketNoConsumer   = []byte{1}
-	busMiscPacketSlowConsumer = []byte{2}
+	busMiscPacketGoOn       = []byte{0}
+	busMiscPacketNoConsumer = []byte{1}
 )
 
-// SetSectionConsumeAddonTimeout used in tests
-func SetSectionConsumeAddonTimeout(timeout time.Duration) {
-	atomic.StoreInt64(&sectionConsumeDefaultTimeout, int64(timeout))
-}
-
+// if called by router: client is disconnected -> ctx.Done()
 func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub *nats.Subscription, secErr *error,
 	timeout time.Duration, firstMsg *nats.Msg, verbose bool) {
 	var currentSection *sectionData
@@ -85,9 +76,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 		close(sections)
 	}()
 
-	timer := timerPool.Get().(*time.Timer)
-	defer timerPool.Put(timer)
-
+	// read from section packets from NATS
 	// terminate on ctx.Done() or `Close` packet receive or on any error
 	var msg *nats.Msg
 	for {
@@ -112,8 +101,6 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			log.Printf("%s packet received %s:\n%s", sub.Subject, busPacketType(msg.Data[0]), hex.Dump(msg.Data))
 		}
 
-		sectionConsumeTimeout := false
-
 		// msg.Data to ISection
 		switch busPacketType(msg.Data[0]) {
 		case busPacketMiscInboxName:
@@ -130,7 +117,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			var path []string = nil
 			pos++
 			if lenPath > 0 {
-				path = make([]string, lenPath, lenPath)
+				path = make([]string, lenPath)
 				for i := 0; i < int(lenPath); i++ {
 					lenP := int(msg.Data[pos])
 					pos++
@@ -172,18 +159,8 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			if verbose {
 				log.Printf("%s section %s:`%s` %v\n", sub.Subject, currentSection.sectionKind, sectionType, path)
 			}
-			resetTimer(timer, len(msg.Data))
-			select {
-			case sections <- sectionToSend:
-				resetTimer(timer, len(elemBytes))
-				select {
-				case currentSection.elems <- element{elemName, elemBytes}:
-				case <-timer.C:
-					sectionConsumeTimeout = true
-				}
-			case <-timer.C:
-				sectionConsumeTimeout = true
-			}
+			sections <- sectionToSend
+			currentSection.elems <- element{elemName, elemBytes}
 		case busPacketSectionElement:
 			elemName := ""
 			pos := 1
@@ -194,34 +171,15 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 				pos += elemNameLen
 			}
 			elemBytes := msg.Data[pos:]
-			resetTimer(timer, len(elemBytes))
-			select {
-			case currentSection.elems <- element{elemName, elemBytes}:
-			case <-timer.C:
-				sectionConsumeTimeout = true
-			}
+			currentSection.elems <- element{elemName, elemBytes}
 		}
-		if sectionConsumeTimeout {
-			sendMisc(busMiscPacketSlowConsumer, "slow consumer", inbox, verbose)
-			*secErr = ErrSlowConsumer
-			return
-		} else if busPacketType(msg.Data[0]) != busPacketMiscInboxName {
+		if busPacketType(msg.Data[0]) != busPacketMiscInboxName {
 			if isStreamForsaken = sendMisc(busMiscPacketGoOn, "go on", inbox, verbose); isStreamForsaken {
 				// do not send `go on` if inbox name is sent. Section + element will be received without `go on` awaiting
 				return
 			}
 		}
 	}
-}
-
-func resetTimer(timer *time.Timer, packetSize int) {
-	if !timer.Stop() && len(timer.C) != 0 {
-		<-timer.C
-	}
-	allowedBytesPerMillisecond := float32(srv.AllowedSectionKBitsPerSec) / 8
-	allowedSectionMillis := float32(packetSize) / allowedBytesPerMillisecond
-	sectionConsumeDuration := time.Duration(atomic.LoadInt64(&sectionConsumeDefaultTimeout))
-	timer.Reset(time.Duration(allowedSectionMillis)*time.Millisecond + sectionConsumeDuration)
 }
 
 func sendMisc(packet []byte, packetDesc string, inbox string, verbose bool) (isStreamForsaken bool) {
@@ -303,16 +261,16 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		return
 	}
 
-	// now let's wait for continuation
-	processTimeout := int32(b.Len()) / (atomic.LoadInt32(&srv.AllowedSectionKBitsPerSec) * 1000 / 8)
+	// wait for continuation
 	if onBeforeContinuationReceive != nil {
 		// used in tests
 		onBeforeContinuationReceive()
 	}
-	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(processTimeout)+ibus.DefaultTimeout)
+	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(atomic.LoadInt64(&continuationTimeout)))
 	if err != nil {
-		log.Printf("failed to receive continuation signal: %v\n", err)
-		return err
+		rs.lastError = fmt.Errorf("failed to receive continuation signal: %w", err)
+		log.Println(rs.lastError)
+		return rs.lastError
 	}
 
 	switch miscMsg.Data[0] {
@@ -321,11 +279,6 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 			log.Printf("`no consumer` received")
 		}
 		return ErrNoConsumer
-	case busMiscPacketSlowConsumer[0]:
-		if srv.Verbose {
-			log.Printf("`slow consumer` received")
-		}
-		return ErrSlowConsumer
 	case busMiscPacketGoOn[0]:
 		if srv.Verbose {
 			log.Printf("`go on` received")
