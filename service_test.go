@@ -253,4 +253,25 @@ func TestCover(t *testing.T) {
 	logStack("test", nil)
 	logStack("test", ibus.ErrTimeoutExpired)
 	_ = busPacketType(len(_busPacketType_index)).String()
+
+}
+
+func TestGetService(t *testing.T) {
+	opts := natsserver.DefaultTestOptions
+	s := natsserver.RunServer(&opts)
+	defer s.Shutdown()
+
+	expectedService := &Service{
+		NATSServers:      "nats://127.0.0.1:4222",
+		Parts:            1,
+		CurrentPart:      1,
+		Queues:           map[string]int{"airs-bp": 1},
+		CurrentQueueName: "airs-bp",
+	}
+	Declare(expectedService)
+	godif.Require(&ibus.SendRequest2)
+	ctx, err := services.ResolveAndStart()
+	require.Nil(t, err)
+	require.Equal(t, expectedService, GetService(ctx))
+	services.StopAndReset(ctx)
 }
