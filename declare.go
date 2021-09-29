@@ -11,22 +11,15 @@ import (
 )
 
 // Declare s.e.
-func Declare(service *Service) {
-	godif.ProvideSliceElement(&services.Services, service)
+func Declare(srv *Service) {
+	godif.ProvideSliceElement(&services.Services, srv)
 	godif.Provide(&ibus.SendRequest2, implSendRequest2)
 	godif.Provide(&ibus.SendResponse, implSendResponse)
 	godif.Provide(&ibus.SendParallelResponse2, implSendParallelResponse2)
 	// godif.Require(&ibus.RequestHandler) - for router should not be here (no implementation), for bp - required at main()
 }
 
-// DeclareTest declares test NATS server. Useful for implement tests using the real NATS server
-func DeclareTest(partitionsAmount int) *Service {
-	godif.ProvideSliceElement(&services.Services, &testServer{})
-	return &Service{
-		NATSServers:      "nats://127.0.0.1:4222",
-		Parts:            1,
-		CurrentPart:      1,
-		Queues:           map[string]int{"airs-bp": partitionsAmount},
-		CurrentQueueName: "airs-bp",
-	}
+// DeclareEmbeddedNATSServer declares test NATS server. Useful for implement tests using the real NATS server
+func DeclareEmbeddedNATSServer() {
+	godif.ProvideSliceElement(&services.Services, &embeddedNATSServer{})
 }

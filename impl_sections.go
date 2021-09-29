@@ -267,6 +267,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		onBeforeContinuationReceive()
 	}
 	miscMsg, err := getNATSResponse(rs.miscSub, time.Duration(atomic.LoadInt64(&continuationTimeout)))
+
 	if err != nil {
 		rs.lastError = fmt.Errorf("failed to receive continuation signal: %w", err)
 		log.Println(rs.lastError)

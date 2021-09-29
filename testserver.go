@@ -11,24 +11,26 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/test"
 )
 
-type testServerKeyType string
+const embeddedNATSServerKey embeddedNATSServerKeyType = "embeddedNATSServer"
 
-const testServerKey testServerKeyType = "testServer"
+var DefaultEmbeddedNATSServerURL = NATSServers([]string{"nats://127.0.0.1:4222"})
 
-type testServer struct {
+type embeddedNATSServerKeyType string
+
+type embeddedNATSServer struct {
 	s *server.Server
 }
 
-func getTestServer(ctx context.Context) *testServer {
-	return ctx.Value(testServerKey).(*testServer)
+func getEmbeddedNATSServer(ctx context.Context) *embeddedNATSServer {
+	return ctx.Value(embeddedNATSServerKey).(*embeddedNATSServer)
 }
 
-func (s *testServer) Start(ctx context.Context) (context.Context, error) {
+func (s *embeddedNATSServer) Start(ctx context.Context) (context.Context, error) {
 	opts := natsserver.DefaultTestOptions
 	s.s = natsserver.RunServer(&opts)
-	return context.WithValue(ctx, testServerKey, s), nil
+	return context.WithValue(ctx, embeddedNATSServerKey, s), nil
 }
 
-func (s *testServer) Stop(ctx context.Context) {
-	getTestServer(ctx).s.Shutdown()
+func (s *embeddedNATSServer) Stop(ctx context.Context) {
+	getEmbeddedNATSServer(ctx).s.Shutdown()
 }

@@ -732,12 +732,16 @@ func TestSendElementNoSection(t *testing.T) {
 }
 
 func TestStopOnMiscSendFailed(t *testing.T) {
+	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Error(t, nats.ErrConnectionClosed, rs.ObjectSection("objSec", []string{"class"}, 42))
 		require.Error(t, nats.ErrConnectionClosed, rs.ObjectSection("objSec", []string{"class"}, 43))
 
 		rs.Close(nil)
+		// failed to send continuation -> stream is forsaken -> close sections at getSectionsFromNATS()
+		// need to wait for rs.Close(), otherwise expectedCloseCount could be != actualCloseCount at tearDown()
+		close(ch)
 	})
 
 	setUp()
@@ -755,18 +759,23 @@ func TestStopOnMiscSendFailed(t *testing.T) {
 	require.NotNil(t, sections)
 
 	onBeforeMiscSend = func() {
-		getTestServer(ctx).s.Shutdown()
+		// will shutdown NATS server
+		getEmbeddedNATSServer(ctx).s.Shutdown()
 		ctx.Value(nATSKey).(*Service).Stop(ctx)
 	}
 
+	// first is received
 	section := <-sections
+	// now going to send misc. That failed because NATS server has been stopped on onBeforeSend()
 	objSec := section.(ibus.IObjectSection)
 	require.Equal(t, "42", string(objSec.Value()))
 
-	// will not receive anything more
+	// will not receive anything more, sender got an error on SendElement()
 	_, ok := <-sections
 	require.False(t, ok)
 	require.Error(t, nats.ErrConnectionClosed, *secErr)
+
+	<-ch
 }
 
 func TestErrorOnSendAfterClose(t *testing.T) {
@@ -804,7 +813,16 @@ func TestErrorOnSendAfterClose(t *testing.T) {
 }
 
 func setUp() {
-	Declare(DeclareTest(1))
+	DeclareEmbeddedNATSServer()
+	srv := &Service{
+		NATSServers:      DefaultEmbeddedNATSServerURL,
+		Queues:           QueuesPartitionsMap{"airs-bp": 1},
+		CurrentQueueName: "airs-bp",
+		Parts:            1,
+		CurrentPart:      1,
+		Verbose:          true,
+	}
+	Declare(srv)
 	godif.Require(&ibus.SendParallelResponse2)
 	godif.Require(&ibus.SendRequest2)
 	godif.Require(&ibus.SendResponse)
@@ -815,10 +833,10 @@ func setUp() {
 		panic(err)
 	}
 	srv.Verbose = true
-	current := ibus.SendParallelResponse2
+	currentSendParallelResponce2 := ibus.SendParallelResponse2
 	atomic.StoreInt32(&expectedCloseCalls, 0)
 	ibus.SendParallelResponse2 = func(ctx context.Context, sender interface{}) (rsender ibus.IResultSenderClosable) {
-		res := current(ctx, sender)
+		res := currentSendParallelResponce2(ctx, sender)
 		atomic.AddInt32(&expectedCloseCalls, 1)
 		return res
 	}
@@ -834,7 +852,7 @@ func tearDown() {
 	onBeforeContinuationReceive = nil
 	onBeforeMiscSend = nil
 	if expectedCloseCalls > actualCloseCalls {
-		panic("")
+		panic(fmt.Sprintf("expected close calls: %d, actual: %d", expectedCloseCalls, actualCloseCalls))
 	}
 	expectedCloseCalls = 0
 	actualCloseCalls = 0

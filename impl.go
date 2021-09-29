@@ -70,7 +70,7 @@ func implSendRequest2(ctx context.Context,
 
 	// Handle response
 	{
-		return handleNATSResponse(ctx, sub, qName, replyTo, timeout, srv.Verbose)
+		return handleNATSResponse(ctx, sub, qName, replyTo, timeout, bool(srv.Verbose))
 	}
 }
 

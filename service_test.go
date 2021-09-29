@@ -25,14 +25,12 @@ func TestServiceStartErrors(t *testing.T) {
 	defer s.Shutdown()
 
 	// unknown CurrentQueueName -> error
-	service := &Service{
-		NATSServers:      "nats://127.0.0.1:4222",
-		Parts:            1,
-		CurrentPart:      1,
-		Queues:           map[string]int{"airs-bp": 1},
+	srv := &Service{
+		NATSServers:      DefaultEmbeddedNATSServerURL,
+		Queues:           QueuesPartitionsMap{"airs-bp": 1},
 		CurrentQueueName: "unknown",
 	}
-	Declare(service)
+	Declare(srv)
 	godif.Require(&ibus.SendRequest2)
 	ctx, err := services.ResolveAndStart()
 	require.NotNil(t, err)
@@ -40,12 +38,11 @@ func TestServiceStartErrors(t *testing.T) {
 	godif.Reset()
 
 	// failed to connect subscribers -> error
-	service.CurrentQueueName = "airs-bp"
-	service.NATSServers = "nats://127.0.0.1:4222"
+	srv.CurrentQueueName = "airs-bp"
 	patches := gomonkey.ApplyFuncSeq(nats.Connect, []gomonkey.OutputCell{
 		{Values: gomonkey.Params{nil, errors.New("test error")}},
 	})
-	Declare(service)
+	Declare(srv)
 	godif.Require(&ibus.SendRequest2)
 	ctx, err = services.ResolveAndStart()
 	require.NotNil(t, err)
@@ -58,7 +55,7 @@ func TestServiceStartErrors(t *testing.T) {
 		{Values: gomonkey.Params{nil, nil}},
 		{Values: gomonkey.Params{nil, errors.New("test error")}},
 	})
-	Declare(service)
+	Declare(srv)
 	godif.Require(&ibus.SendRequest2)
 	ctx, err = services.ResolveAndStart()
 	require.NotNil(t, err)
@@ -68,15 +65,13 @@ func TestServiceStartErrors(t *testing.T) {
 }
 
 func TestNoSubscribersOnEmptyCurrentQueueName(t *testing.T) {
-	DeclareTest(1)
-	service := &Service{
-		NATSServers:      "nats://127.0.0.1:4222",
-		Parts:            1,
-		CurrentPart:      1,
+	DeclareEmbeddedNATSServer()
+	srv := &Service{
+		NATSServers:      NATSServers{"nats://127.0.0.1:4222"},
 		Queues:           map[string]int{"airs-bp": 1},
 		CurrentQueueName: "",
 	}
-	Declare(service)
+	Declare(srv)
 	godif.Require(&ibus.SendRequest2)
 	ctx, err := services.ResolveAndStart()
 	require.Nil(t, err)
@@ -93,7 +88,7 @@ func TestServiceStartErrors2(t *testing.T) {
 
 	// empty CurrentQueueName -> service start error
 	service := &Service{
-		NATSServers:      "nats://127.0.0.1:4222",
+		NATSServers:      NATSServers{"nats://127.0.0.1:4222"},
 		Parts:            1,
 		CurrentPart:      1,
 		Queues:           map[string]int{"airs-bp": 1},
@@ -168,7 +163,7 @@ func TestReconnect(t *testing.T) {
 	require.Equal(t, "42", string(secObj.Value()))
 
 	// now stop the server
-	ts := getTestServer(ctx)
+	ts := getEmbeddedNATSServer(ctx)
 	ts.s.Shutdown()
 
 	// start server
@@ -238,7 +233,7 @@ func TestPartsAssigning(t *testing.T) {
 		},
 	}
 	for partNumbers, srv := range srvTests {
-		srv.NATSServers = "nats://127.0.0.1:4222"
+		srv.NATSServers = NATSServers{"nats://127.0.0.1:4222"}
 		srv.CurrentQueueName = "airs-bp"
 		Declare(srv)
 		godif.Require(&ibus.SendRequest2)
@@ -262,7 +257,7 @@ func TestGetService(t *testing.T) {
 	defer s.Shutdown()
 
 	expectedService := &Service{
-		NATSServers:      "nats://127.0.0.1:4222",
+		NATSServers:      NATSServers{"nats://127.0.0.1:4222"},
 		Parts:            1,
 		CurrentPart:      1,
 		Queues:           map[string]int{"airs-bp": 1},

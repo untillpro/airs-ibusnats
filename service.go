@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	ibus "github.com/untillpro/airs-ibus"
@@ -22,14 +23,14 @@ var srv *Service
 
 // Service s.e.
 type Service struct {
-	NATSServers      string // Comma-separated list of servers
-	Queues           map[string]int
-	CurrentQueueName string
+	NATSServers      NATSServers
+	Queues           QueuesPartitionsMap
+	CurrentQueueName CurrentQueueName // queue to subscribe on. Empty -> no subscriptions (e.g. router has nothing to subscribe on)
 	Parts            int
 	CurrentPart      int
-	Verbose          bool // verbose debug log if true
-	nATSPublisher             *nats.Conn
-	nATSSubscribers           map[int]*nATSSubscriber // partitionNumber->subscriber
+	Verbose          Verbose // verbose debug log if true
+	nATSPublisher    *nats.Conn
+	nATSSubscribers  map[int]*nATSSubscriber // partitionNumber->subscriber
 }
 
 type contextKeyType string
@@ -63,7 +64,7 @@ func (s *Service) connectSubscribers() error {
 		// router has no subscribers
 		return nil
 	}
-	numOfSubjects, ok := s.Queues[s.CurrentQueueName] // 100 (hardcoded at airs-bp2 main())
+	numOfSubjects, ok := s.Queues[string(s.CurrentQueueName)] // 100 (hardcoded at airs-bp2 main())
 	if !ok {
 		return errors.New("can't find number of subjects in queues map")
 	}
@@ -92,7 +93,7 @@ func (s *Service) connectSubscribers() error {
 	log.Println("Partition range:", minPart, "-", maxPart-1)
 	s.nATSSubscribers = map[int]*nATSSubscriber{}
 	for i := minPart; i < maxPart; i++ {
-		conn, err := connectToNATS(s.NATSServers, s.CurrentQueueName+strconv.Itoa(i))
+		conn, err := connectToNATS(s.NATSServers, string(s.CurrentQueueName)+strconv.Itoa(i))
 		if err != nil {
 			return err
 		}
@@ -115,10 +116,10 @@ func nATSMsgHandler(ctx context.Context, msg *nats.Msg) {
 	ibus.RequestHandler(ctx, sender, req)
 }
 
-func connectToNATS(servers string, subjName string) (conn *nats.Conn, err error) {
+func connectToNATS(servers NATSServers, subjName string) (conn *nats.Conn, err error) {
 	opts := setupConnOptions([]nats.Option{nats.Name(subjName)})
 	opts = setupConnOptions(opts)
-	conn, err = nats.Connect(servers, opts...)
+	conn, err = nats.Connect(strings.Join(servers, ","), opts...)
 	return
 }
 
