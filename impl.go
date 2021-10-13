@@ -108,7 +108,7 @@ func (ns *nATSSubscriber) sendSingleResponseToNATS(resp ibus.Response, subjToRep
 	}
 }
 
-func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
+func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler, verbose bool) (err error) {
 	conn := ns.conn
 	if ns.subscription, err = conn.QueueSubscribe(conn.Opts.Name, conn.Opts.Name, handler); err != nil {
 		err = fmt.Errorf("conn.QueueSubscribe failed: %w", err)
@@ -122,7 +122,9 @@ func (ns *nATSSubscriber) subscribe(handler nats.MsgHandler) (err error) {
 		err = fmt.Errorf("conn.LastError not nil: %w", err)
 		return
 	}
-	log.Println("Subscribe for subj", conn.Opts.Name)
+	if verbose {
+		log.Println("Subscribe for subj", conn.Opts.Name)
+	}
 	return
 }
 

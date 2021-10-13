@@ -51,7 +51,7 @@ func (s *Service) Start(ctx context.Context) (newCtx context.Context, err error)
 		natsHandler := func(msg *nats.Msg) {
 			nATSMsgHandler(newCtx, msg)
 		}
-		if err = v.subscribe(natsHandler); err != nil {
+		if err = v.subscribe(natsHandler, bool(s.Verbose)); err != nil {
 			v.conn.Close()
 			return nil, err
 		}
