@@ -43,7 +43,7 @@ func (s *Service) Start(ctx context.Context) (newCtx context.Context, err error)
 	if err = s.connectSubscribers(); err != nil {
 		return
 	}
-	if s.nATSPublisher, err = connectToNATS(s.NATSServers, "NATSPublisher"); err != nil {
+	if s.nATSPublisher, err = connectToNATS(s.NATSServers, "NATSPublisher", bool(s.Verbose)); err != nil {
 		return
 	}
 	newCtx = context.WithValue(ctx, nATSKey, s)
@@ -93,7 +93,7 @@ func (s *Service) connectSubscribers() error {
 	log.Println("Partition range:", minPart, "-", maxPart-1)
 	s.nATSSubscribers = map[int]*nATSSubscriber{}
 	for i := minPart; i < maxPart; i++ {
-		conn, err := connectToNATS(s.NATSServers, string(s.CurrentQueueName)+strconv.Itoa(i))
+		conn, err := connectToNATS(s.NATSServers, string(s.CurrentQueueName)+strconv.Itoa(i), bool(s.Verbose))
 		if err != nil {
 			return err
 		}
