@@ -116,9 +116,9 @@ func nATSMsgHandler(ctx context.Context, msg *nats.Msg) {
 	ibus.RequestHandler(ctx, sender, req)
 }
 
-func connectToNATS(servers NATSServers, subjName string) (conn *nats.Conn, err error) {
-	opts := setupConnOptions([]nats.Option{nats.Name(subjName)})
-	opts = setupConnOptions(opts)
+func connectToNATS(servers NATSServers, subjName string, verbose bool) (conn *nats.Conn, err error) {
+	opts := setupConnOptions([]nats.Option{nats.Name(subjName)}, verbose)
+	opts = setupConnOptions(opts, verbose)
 	conn, err = nats.Connect(strings.Join(servers, ","), opts...)
 	return
 }

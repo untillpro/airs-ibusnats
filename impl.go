@@ -166,27 +166,35 @@ func handleNATSResponse(ctx context.Context, sub *nats.Subscription, partitionKe
 	return
 }
 
-func setupConnOptions(opts []nats.Option) []nats.Option {
+func setupConnOptions(opts []nats.Option, verbose bool) []nats.Option {
 	totalWait := 10 * time.Minute
 	reconnectDelay := time.Second
 
 	opts = append(opts, nats.ReconnectWait(reconnectDelay))
 	opts = append(opts, nats.MaxReconnects(int(totalWait/reconnectDelay)))
 	opts = append(opts, nats.DisconnectHandler(func(nc *nats.Conn) {
-		log.Println(nc.Opts.Name, "disconnected")
+		if verbose {
+			log.Println(nc.Opts.Name, "disconnected")
+		}
 	}))
 	opts = append(opts, nats.ReconnectHandler(func(nc *nats.Conn) {
 		if onReconnect != nil {
 			// happens in tests
 			onReconnect()
 		}
-		log.Println(nc.Opts.Name, "reconnected")
+		if verbose {
+			log.Println(nc.Opts.Name, "reconnected")
+		}
 	}))
 	opts = append(opts, nats.ClosedHandler(func(nc *nats.Conn) {
-		log.Println(nc.Opts.Name, "closed")
+		if verbose {
+			log.Println(nc.Opts.Name, "closed")
+		}
 	}))
 	opts = append(opts, nats.ErrorHandler(func(nc *nats.Conn, s *nats.Subscription, err error) {
-		log.Println(nc.Opts.Name, "error:", err.Error())
+		if verbose {
+			log.Println(nc.Opts.Name, "error:", err.Error())
+		}
 	}))
 
 	return opts
