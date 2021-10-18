@@ -20,8 +20,6 @@ import (
 )
 
 var (
-	// ErrNoConsumer shows that consumer of further sections is gone. Further sections sending is senceless.
-	ErrNoConsumer        = errors.New("no consumer for the stream")
 	errCommunicationDone = errors.New("communication done")
 
 	onBeforeMiscSend            func() = nil                        // used in tests
@@ -279,7 +277,7 @@ func (rs *implIResultSenderCloseable) SendElement(name string, element interface
 		if srv.Verbose {
 			log.Printf("`no consumer` received")
 		}
-		return ErrNoConsumer
+		return ibus.ErrNoConsumer
 	case busMiscPacketGoOn[0]:
 		if srv.Verbose {
 			log.Printf("`go on` received")

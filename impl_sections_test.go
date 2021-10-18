@@ -321,7 +321,7 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Nil(t, rs.ObjectSection("", nil, 42))
 		time.Sleep(300 * time.Millisecond)
-		require.Error(t, ErrNoConsumer, rs.ObjectSection("", nil, 43))
+		require.Error(t, ibus.ErrNoConsumer, rs.ObjectSection("", nil, 43))
 		rs.Close(nil)
 		ch <- struct{}{}
 	})
@@ -359,7 +359,7 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 		<-ch // wait for context cancel
 		// context is closed here so next communication will cause ErrNoConsumer error
 		// note: further will cause ibus.ErrTimeoutExpired due of no data on misc inbox
-		require.Error(t, ErrNoConsumer, rs.ObjectSection("objSec", []string{"class"}, 43))
+		require.Error(t, ibus.ErrNoConsumer, rs.ObjectSection("objSec", []string{"class"}, 43))
 
 		rs.Close(nil)
 
@@ -562,7 +562,7 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 		rs.StartMapSection("secArr", []string{"class"})
 		require.Nil(t, rs.SendElement("f1", "v1"))
 		<-ch // wait for context cancel
-		require.Error(t, ErrNoConsumer, rs.SendElement("f1", "v2"))
+		require.Error(t, ibus.ErrNoConsumer, rs.SendElement("f1", "v2"))
 
 		rs.Close(nil)
 		ch <- struct{}{}
@@ -610,7 +610,7 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 		rs.StartArraySection("secArr", []string{"class"})
 		require.Nil(t, rs.SendElement("", "arrEl1"))
 		<-ch //wait for context close
-		require.Error(t, ErrNoConsumer, rs.SendElement("", "arrEl2"))
+		require.Error(t, ibus.ErrNoConsumer, rs.SendElement("", "arrEl2"))
 
 		rs.Close(nil)
 		ch <- struct{}{}
