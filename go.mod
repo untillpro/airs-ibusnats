@@ -16,7 +16,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/klauspost/compress v1.13.4 // indirect
 	github.com/minio/highwayhash v1.0.1 // indirect
-	github.com/nats-io/jwt v1.1.0 // indirect
 	github.com/nats-io/jwt/v2 v2.2.1-0.20220113022732-58e87895b296 // indirect
 	github.com/nats-io/nkeys v0.3.0 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
