@@ -7,7 +7,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.6.2
 	github.com/nats-io/nats.go v1.13.0
 	github.com/stretchr/testify v1.7.0
-	github.com/untillpro/airs-ibus v0.0.0-20211018104549-2abc028141d9
+	github.com/untillpro/airs-ibus v0.0.0-20220131142157-995500ee0402
 	github.com/untillpro/godif v0.18.0
 	github.com/valyala/bytebufferpool v1.0.0
 )
