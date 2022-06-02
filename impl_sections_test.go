@@ -309,7 +309,7 @@ func TestReadFirstPacketTimeout(t *testing.T) {
 	}
 	_, sections, secErr, err := ibus.SendRequest2(ctx, req, 300*time.Millisecond)
 	require.Nil(t, sections)
-	require.Error(t, ibus.ErrTimeoutExpired, err)
+	require.ErrorIs(t, err, ibus.ErrTimeoutExpired)
 	fmt.Println(err)
 	require.Nil(t, secErr)
 	<-ch // to avoid writting to ibus.SendParallelResponse2 on godif.Reset() and ibus.RequestHandler() working -> datarace
@@ -321,7 +321,7 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Nil(t, rs.ObjectSection("", nil, 42))
 		time.Sleep(300 * time.Millisecond)
-		require.Error(t, ibus.ErrNoConsumer, rs.ObjectSection("", nil, 43))
+		require.ErrorIs(t, rs.ObjectSection("", nil, 43), ibus.ErrNoConsumer)
 		rs.Close(nil)
 		ch <- struct{}{}
 	})
@@ -345,7 +345,7 @@ func TestReadSectionPacketTimeout(t *testing.T) {
 
 	_, ok := <-sections
 	require.False(t, ok)
-	require.Error(t, ibus.ErrTimeoutExpired, *secErr)
+	require.ErrorIs(t, *secErr, ibus.ErrTimeoutExpired)
 	fmt.Println(*secErr)
 
 	<-ch
@@ -356,10 +356,11 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		require.Nil(t, rs.ObjectSection("objSec", []string{"class"}, 42))
+		ch <- struct{}{}
 		<-ch // wait for context cancel
 		// context is closed here so next communication will cause ErrNoConsumer error
 		// note: further will cause ibus.ErrTimeoutExpired due of no data on misc inbox
-		require.Error(t, ibus.ErrNoConsumer, rs.ObjectSection("objSec", []string{"class"}, 43))
+		require.ErrorIs(t, rs.ObjectSection("objSec", []string{"class"}, 43), ibus.ErrNoConsumer)
 
 		rs.Close(nil)
 
@@ -387,6 +388,7 @@ func TestNoConsumerOnContextDone(t *testing.T) {
 
 	// requester now waits for data from NATS
 	// then will check the context
+	<-ch // wait for sending "go on" and returning from SendElement
 	cancel()
 	ch <- struct{}{} //signal to writer to send something more after context cancel
 	// requeter receives next section but sees that ctx.Done()
@@ -561,8 +563,9 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.StartMapSection("secArr", []string{"class"})
 		require.Nil(t, rs.SendElement("f1", "v1"))
-		<-ch // wait for context cancel
-		require.Error(t, ibus.ErrNoConsumer, rs.SendElement("f1", "v2"))
+		ch <- struct{}{} // signal we're retuned from SendElement without error and it is safe to cancel the client's conext
+		<-ch             // wait for context cancel
+		require.ErrorIs(t, rs.SendElement("f1", "v2"), ibus.ErrNoConsumer)
 
 		rs.Close(nil)
 		ch <- struct{}{}
@@ -587,6 +590,8 @@ func TestStopOnMapSectionNextElemContextDone(t *testing.T) {
 	_, _, ok := mapSec.Next() // came with section. Writer is going to write next, waiting for `<-ch`
 	require.True(t, ok)
 
+	// let's wait for sending "go on" and return from SendElement without errors
+	<-ch
 	cancel()
 	ch <- struct{}{} //signal to writer to send something more after context cancel
 
@@ -609,8 +614,9 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.StartArraySection("secArr", []string{"class"})
 		require.Nil(t, rs.SendElement("", "arrEl1"))
+		ch <- struct{}{} // signal we're returned successfully from SendElement
 		<-ch //wait for context close
-		require.Error(t, ibus.ErrNoConsumer, rs.SendElement("", "arrEl2"))
+		require.ErrorIs(t, rs.SendElement("", "arrEl2"), ibus.ErrNoConsumer)
 
 		rs.Close(nil)
 		ch <- struct{}{}
@@ -635,8 +641,9 @@ func TestStopOnArraySectionNextElemOnContextDone(t *testing.T) {
 	_, ok := arrSec.Next() // came with section, no timeout, going to write next
 	require.True(t, ok)
 
+	<-ch // wait for "go on" sending and return from SendElement
 	cancel()
-	ch <- struct{}{} //signal send more on cancelled context
+	ch <- struct{}{} //signal to send more on cancelled context
 
 	val, ok := arrSec.Next() // closed due of cancelled context
 	require.False(t, ok)
@@ -735,8 +742,8 @@ func TestStopOnMiscSendFailed(t *testing.T) {
 	ch := make(chan struct{})
 	godif.Provide(&ibus.RequestHandler, func(ctx context.Context, sender interface{}, request ibus.Request) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
-		require.Error(t, nats.ErrConnectionClosed, rs.ObjectSection("objSec", []string{"class"}, 42))
-		require.Error(t, nats.ErrConnectionClosed, rs.ObjectSection("objSec", []string{"class"}, 43))
+		require.ErrorIs(t, rs.ObjectSection("objSec", []string{"class"}, 42), nats.ErrConnectionClosed)
+		require.ErrorIs(t, rs.ObjectSection("objSec", []string{"class"}, 43), nats.ErrConnectionClosed)
 
 		rs.Close(nil)
 		// failed to send continuation -> stream is forsaken -> close sections at getSectionsFromNATS()
@@ -773,7 +780,7 @@ func TestStopOnMiscSendFailed(t *testing.T) {
 	// will not receive anything more, sender got an error on SendElement()
 	_, ok := <-sections
 	require.False(t, ok)
-	require.Error(t, nats.ErrConnectionClosed, *secErr)
+	require.ErrorIs(t, *secErr, nats.ErrConnectionClosed)
 
 	<-ch
 }
@@ -784,9 +791,9 @@ func TestErrorOnSendAfterClose(t *testing.T) {
 		rs := ibus.SendParallelResponse2(ctx, sender)
 		rs.Close(nil)
 
-		require.Error(t, errCommunicationDone, rs.ObjectSection("", []string{}, 42))
+		require.ErrorIs(t, rs.ObjectSection("", []string{}, 42), errCommunicationDone)
 		rs.StartMapSection("", []string{})
-		require.Error(t, errCommunicationDone, rs.SendElement("", 42))
+		require.ErrorIs(t, rs.SendElement("", 42), errCommunicationDone)
 		rs.Close(nil)
 		ch <- struct{}{}
 	})

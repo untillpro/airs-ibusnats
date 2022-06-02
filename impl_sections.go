@@ -77,7 +77,7 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 	// read from section packets from NATS
 	// terminate on ctx.Done() or `Close` packet receive or on any error
 	var msg *nats.Msg
-	for {
+	for isStreamForsaken = ctx.Err() != nil; !isStreamForsaken; isStreamForsaken = ctx.Err() != nil {
 		if firstMsg != nil {
 			msg = firstMsg
 			firstMsg = nil
@@ -172,6 +172,12 @@ func getSectionsFromNATS(ctx context.Context, sections chan<- ibus.ISection, sub
 			currentSection.elems <- element{elemName, elemBytes}
 		}
 		if busPacketType(msg.Data[0]) != busPacketMiscInboxName {
+			if ctx.Err() != nil {
+				// otherwsie possible: client disconnected, currentSection.elems<- and\or sections<- is success because router read it out,
+				// then wait for next message from NATS on next iteration forever
+				isStreamForsaken = true
+				return
+			}
 			if isStreamForsaken = sendMisc(busMiscPacketGoOn, "go on", inbox, verbose); isStreamForsaken {
 				// do not send `go on` if inbox name is sent. Section + element will be received without `go on` awaiting
 				return
